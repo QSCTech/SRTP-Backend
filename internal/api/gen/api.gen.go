@@ -12,9 +12,32 @@ import (
 	"github.com/oapi-codegen/runtime"
 )
 
+// CreateJoinRequestRequest defines model for CreateJoinRequestRequest.
+type CreateJoinRequestRequest struct {
+	Message string `json:"message"`
+}
+
+// CreateRoomRequest defines model for CreateRoomRequest.
+type CreateRoomRequest struct {
+	Atmosphere        *string    `json:"atmosphere,omitempty"`
+	Description       *string    `json:"description,omitempty"`
+	EndTime           *time.Time `json:"end_time,omitempty"`
+	GenderRequirement *string    `json:"gender_requirement,omitempty"`
+	JoinPolicy        string     `json:"join_policy"`
+	LocationText      string     `json:"location_text"`
+	MaxMembers        *int32     `json:"max_members,omitempty"`
+	MinMembers        *int32     `json:"min_members,omitempty"`
+	Name              string     `json:"name"`
+	OrganizationText  *string    `json:"organization_text,omitempty"`
+	SkillLevel        *string    `json:"skill_level,omitempty"`
+	SportCode         string     `json:"sport_code"`
+	StartTime         time.Time  `json:"start_time"`
+	Visibility        string     `json:"visibility"`
+}
+
 // CreateUserRequest defines model for CreateUserRequest.
 type CreateUserRequest struct {
-	Name string `json:"name"`
+	AuthUid string `json:"auth_uid"`
 }
 
 // ErrorResponse defines model for ErrorResponse.
@@ -28,32 +51,159 @@ type HealthResponse struct {
 	Status  string `json:"status"`
 }
 
+// JoinRequestResponse defines model for JoinRequestResponse.
+type JoinRequestResponse struct {
+	RequestId int64  `json:"request_id"`
+	Status    string `json:"status"`
+}
+
+// JoinRoomByCodeRequest defines model for JoinRoomByCodeRequest.
+type JoinRoomByCodeRequest struct {
+	InviteCode string `json:"invite_code"`
+}
+
+// JoinRoomResult defines model for JoinRoomResult.
+type JoinRoomResult struct {
+	JoinResult    string  `json:"join_result"`
+	MemberStatus  *string `json:"member_status,omitempty"`
+	RequestStatus *string `json:"request_status,omitempty"`
+	RoomId        int64   `json:"room_id"`
+}
+
 // ReadyResponse defines model for ReadyResponse.
 type ReadyResponse struct {
 	Database string `json:"database"`
 	Status   string `json:"status"`
 }
 
+// RoomCard defines model for RoomCard.
+type RoomCard struct {
+	CurrentMemberCount int32     `json:"current_member_count"`
+	Id                 int64     `json:"id"`
+	JoinPolicy         string    `json:"join_policy"`
+	LocationText       string    `json:"location_text"`
+	MaxMemberCount     int32     `json:"max_member_count"`
+	Name               string    `json:"name"`
+	OwnerAvatarUrl     string    `json:"owner_avatar_url"`
+	OwnerNickname      string    `json:"owner_nickname"`
+	SportCode          string    `json:"sport_code"`
+	StartTime          time.Time `json:"start_time"`
+	Status             string    `json:"status"`
+}
+
+// RoomCardPage defines model for RoomCardPage.
+type RoomCardPage struct {
+	Items    []RoomCard `json:"items"`
+	Page     int32      `json:"page"`
+	PageSize int32      `json:"page_size"`
+	Total    int64      `json:"total"`
+}
+
+// RoomDetail defines model for RoomDetail.
+type RoomDetail struct {
+	Atmosphere         string       `json:"atmosphere"`
+	CurrentMemberCount int32        `json:"current_member_count"`
+	Description        string       `json:"description"`
+	EndTime            *time.Time   `json:"end_time,omitempty"`
+	GenderRequirement  string       `json:"gender_requirement"`
+	Id                 int64        `json:"id"`
+	IsOwner            bool         `json:"is_owner"`
+	JoinPolicy         string       `json:"join_policy"`
+	Joinable           bool         `json:"joinable"`
+	LocationText       string       `json:"location_text"`
+	MaxMembers         *int32       `json:"max_members,omitempty"`
+	Members            []RoomMember `json:"members"`
+	MinMembers         *int32       `json:"min_members,omitempty"`
+	Name               string       `json:"name"`
+	OrganizationText   string       `json:"organization_text"`
+	Owner              RoomOwner    `json:"owner"`
+	SkillLevel         string       `json:"skill_level"`
+	SportCode          string       `json:"sport_code"`
+	StartTime          time.Time    `json:"start_time"`
+	Status             string       `json:"status"`
+	Visibility         string       `json:"visibility"`
+}
+
+// RoomMember defines model for RoomMember.
+type RoomMember struct {
+	AvatarUrl string `json:"avatar_url"`
+	Nickname  string `json:"nickname"`
+	Role      string `json:"role"`
+	Status    string `json:"status"`
+	UserId    int64  `json:"user_id"`
+}
+
+// RoomOwner defines model for RoomOwner.
+type RoomOwner struct {
+	AvatarUrl string `json:"avatar_url"`
+	Id        int64  `json:"id"`
+	Nickname  string `json:"nickname"`
+}
+
 // User defines model for User.
 type User struct {
-	CreatedAt time.Time `json:"created_at"`
-	Id        int64     `json:"id"`
-	Name      string    `json:"name"`
-	UpdatedAt time.Time `json:"updated_at"`
+	AuthUid       string    `json:"auth_uid"`
+	AvatarUrl     string    `json:"avatar_url"`
+	Bio           string    `json:"bio"`
+	CreatedAt     time.Time `json:"created_at"`
+	Gender        string    `json:"gender"`
+	Id            int64     `json:"id"`
+	Nickname      string    `json:"nickname"`
+	ProfileStatus string    `json:"profile_status"`
+	UpdatedAt     time.Time `json:"updated_at"`
 }
 
 // UserResponse defines model for UserResponse.
 type UserResponse = User
+
+// ListRoomsParams defines parameters for ListRooms.
+type ListRoomsParams struct {
+	Keyword      *string `form:"keyword,omitempty" json:"keyword,omitempty"`
+	SportCode    *string `form:"sport_code,omitempty" json:"sport_code,omitempty"`
+	Organization *string `form:"organization,omitempty" json:"organization,omitempty"`
+	TimeSlot     *string `form:"time_slot,omitempty" json:"time_slot,omitempty"`
+	SkillLevel   *string `form:"skill_level,omitempty" json:"skill_level,omitempty"`
+	Atmosphere   *string `form:"atmosphere,omitempty" json:"atmosphere,omitempty"`
+	Page         *int32  `form:"page,omitempty" json:"page,omitempty"`
+	PageSize     *int32  `form:"page_size,omitempty" json:"page_size,omitempty"`
+}
+
+// CreateRoomJSONRequestBody defines body for CreateRoom for application/json ContentType.
+type CreateRoomJSONRequestBody = CreateRoomRequest
+
+// JoinRoomByCodeJSONRequestBody defines body for JoinRoomByCode for application/json ContentType.
+type JoinRoomByCodeJSONRequestBody = JoinRoomByCodeRequest
+
+// CreateJoinRequestJSONRequestBody defines body for CreateJoinRequest for application/json ContentType.
+type CreateJoinRequestJSONRequestBody = CreateJoinRequestRequest
 
 // CreateUserJSONRequestBody defines body for CreateUser for application/json ContentType.
 type CreateUserJSONRequestBody = CreateUserRequest
 
 // ServerInterface represents all server handlers.
 type ServerInterface interface {
-	// Create a placeholder user
+	// List rooms
+	// (GET /api/v1/rooms)
+	ListRooms(c *gin.Context, params ListRoomsParams)
+	// Create a room
+	// (POST /api/v1/rooms)
+	CreateRoom(c *gin.Context)
+	// Join a room by invite code
+	// (POST /api/v1/rooms/join-by-code)
+	JoinRoomByCode(c *gin.Context)
+	// Get room detail
+	// (GET /api/v1/rooms/{roomId})
+	GetRoomById(c *gin.Context, roomId int64)
+	// Join a room directly
+	// (POST /api/v1/rooms/{roomId}/join)
+	JoinRoomDirectly(c *gin.Context, roomId int64)
+	// Create a join request
+	// (POST /api/v1/rooms/{roomId}/requests)
+	CreateJoinRequest(c *gin.Context, roomId int64)
+	// Create a user record
 	// (POST /api/v1/users)
 	CreateUser(c *gin.Context)
-	// Get a placeholder user by id
+	// Get a user by id
 	// (GET /api/v1/users/{id})
 	GetUserById(c *gin.Context, id int64)
 	// Service health check
@@ -72,6 +222,186 @@ type ServerInterfaceWrapper struct {
 }
 
 type MiddlewareFunc func(c *gin.Context)
+
+// ListRooms operation middleware
+func (siw *ServerInterfaceWrapper) ListRooms(c *gin.Context) {
+
+	var err error
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRoomsParams
+
+	// ------------- Optional query parameter "keyword" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "keyword", c.Request.URL.Query(), &params.Keyword, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter keyword: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "sport_code" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sport_code", c.Request.URL.Query(), &params.SportCode, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sport_code: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "organization" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "organization", c.Request.URL.Query(), &params.Organization, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter organization: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "time_slot" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "time_slot", c.Request.URL.Query(), &params.TimeSlot, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter time_slot: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "skill_level" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "skill_level", c.Request.URL.Query(), &params.SkillLevel, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter skill_level: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "atmosphere" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "atmosphere", c.Request.URL.Query(), &params.Atmosphere, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter atmosphere: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "page" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page", c.Request.URL.Query(), &params.Page, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter page: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "page_size" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "page_size", c.Request.URL.Query(), &params.PageSize, runtime.BindQueryParameterOptions{Type: "integer", Format: "int32"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter page_size: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListRooms(c, params)
+}
+
+// CreateRoom operation middleware
+func (siw *ServerInterfaceWrapper) CreateRoom(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateRoom(c)
+}
+
+// JoinRoomByCode operation middleware
+func (siw *ServerInterfaceWrapper) JoinRoomByCode(c *gin.Context) {
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.JoinRoomByCode(c)
+}
+
+// GetRoomById operation middleware
+func (siw *ServerInterfaceWrapper) GetRoomById(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.GetRoomById(c, roomId)
+}
+
+// JoinRoomDirectly operation middleware
+func (siw *ServerInterfaceWrapper) JoinRoomDirectly(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.JoinRoomDirectly(c, roomId)
+}
+
+// CreateJoinRequest operation middleware
+func (siw *ServerInterfaceWrapper) CreateJoinRequest(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId int64
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CreateJoinRequest(c, roomId)
+}
 
 // CreateUser operation middleware
 func (siw *ServerInterfaceWrapper) CreateUser(c *gin.Context) {
@@ -163,6 +493,12 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 		ErrorHandler:       errorHandler,
 	}
 
+	router.GET(options.BaseURL+"/api/v1/rooms", wrapper.ListRooms)
+	router.POST(options.BaseURL+"/api/v1/rooms", wrapper.CreateRoom)
+	router.POST(options.BaseURL+"/api/v1/rooms/join-by-code", wrapper.JoinRoomByCode)
+	router.GET(options.BaseURL+"/api/v1/rooms/:roomId", wrapper.GetRoomById)
+	router.POST(options.BaseURL+"/api/v1/rooms/:roomId/join", wrapper.JoinRoomDirectly)
+	router.POST(options.BaseURL+"/api/v1/rooms/:roomId/requests", wrapper.CreateJoinRequest)
 	router.POST(options.BaseURL+"/api/v1/users", wrapper.CreateUser)
 	router.GET(options.BaseURL+"/api/v1/users/:id", wrapper.GetUserById)
 	router.GET(options.BaseURL+"/healthz", wrapper.GetHealthz)

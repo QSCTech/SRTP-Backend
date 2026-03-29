@@ -11,13 +11,13 @@ import (
 	"time"
 
 	"github.com/gin-gonic/gin"
-	"github.com/serein6174/SRTP-backend/internal/api"
-	"github.com/serein6174/SRTP-backend/internal/config"
-	"github.com/serein6174/SRTP-backend/internal/database"
-	applog "github.com/serein6174/SRTP-backend/internal/logger"
-	"github.com/serein6174/SRTP-backend/internal/repository"
-	"github.com/serein6174/SRTP-backend/internal/service"
-	"github.com/serein6174/SRTP-backend/models"
+	"github.com/QSCTech/SRTP-Backend/internal/api"
+	"github.com/QSCTech/SRTP-Backend/internal/config"
+	"github.com/QSCTech/SRTP-Backend/internal/database"
+	applog "github.com/QSCTech/SRTP-Backend/internal/logger"
+	"github.com/QSCTech/SRTP-Backend/internal/repository"
+	"github.com/QSCTech/SRTP-Backend/internal/service"
+	"github.com/QSCTech/SRTP-Backend/models"
 	"go.uber.org/zap"
 )
 
@@ -51,7 +51,14 @@ func main() {
 		log.Fatal("initialize database", zap.Error(err))
 	}
 
-	if err := gormDB.AutoMigrate(&models.User{}); err != nil {
+	if err := gormDB.AutoMigrate(
+		&models.User{},
+		&models.Room{},
+		&models.RoomMember{},
+		&models.JoinRequest{},
+		&models.UserProfileAudit{},
+		&models.Notification{},
+	); err != nil {
 		log.Fatal("auto migrate models", zap.Error(err))
 	}
 
@@ -65,7 +72,9 @@ func main() {
 
 	userRepository := repository.NewUserRepository(gormDB)
 	userService := service.NewUserService(userRepository)
-	engine := api.NewRouter(log, sqlDB, userService)
+	roomRepository := repository.NewRoomRepository(gormDB)
+	roomService := service.NewRoomService(roomRepository, userService)
+	engine := api.NewRouter(log, sqlDB, userService, roomService)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

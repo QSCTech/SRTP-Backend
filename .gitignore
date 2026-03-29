@@ -9,3 +9,5 @@ coverage.out
 .idea/
 .DS_Store
 .claude/
+docs/
+prd.md

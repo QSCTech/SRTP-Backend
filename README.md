@@ -59,7 +59,7 @@ Responsibilities:
 ### 1. Clone and install dependencies
 
 ```bash
-git clone https://github.com/serein6174/SRTP-backend.git
+git clone https://github.com/QSCTech/SRTP-Backend.git
 cd SRTP-backend
 go mod tidy
 ```

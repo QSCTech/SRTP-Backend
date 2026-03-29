@@ -1,4 +1,4 @@
-module github.com/serein6174/SRTP-backend
+module github.com/QSCTech/SRTP-Backend
 
 go 1.25.0
 

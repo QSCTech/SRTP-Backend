@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/serein6174/SRTP-backend/internal/config"
+	"github.com/QSCTech/SRTP-Backend/internal/config"
 	"go.uber.org/zap"
 	"gorm.io/driver/postgres"
 	"gorm.io/gorm"
