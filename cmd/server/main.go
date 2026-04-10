@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/QSCTech/SRTP-Backend/internal/api"
 	"github.com/QSCTech/SRTP-Backend/internal/config"
 	"github.com/QSCTech/SRTP-Backend/internal/database"
@@ -18,6 +17,7 @@ import (
 	"github.com/QSCTech/SRTP-Backend/internal/repository"
 	"github.com/QSCTech/SRTP-Backend/internal/service"
 	"github.com/QSCTech/SRTP-Backend/models"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 

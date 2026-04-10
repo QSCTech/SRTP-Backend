@@ -1,10 +1,13 @@
 .env
+.env.zju
 bin/
 dist/
 coverage.out
 *.exe
 *.test
 *.out
+__pycache__/
+*.pyc
 .vscode/
 .idea/
 .DS_Store
