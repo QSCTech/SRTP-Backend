@@ -27,10 +27,22 @@ func (r *UserRepository) GetByID(ctx context.Context, id uint) (*models.User, er
 	return &user, nil
 }
 
+func (r *UserRepository) GetByAuthUID(ctx context.Context, authUID string) (*models.User, error) {
+	var user models.User
+	if err := r.db.WithContext(ctx).Where("auth_uid = ?", authUID).First(&user).Error; err != nil {
+		return nil, err
+	}
+	return &user, nil
+}
+
 func (r *UserRepository) GetFirst(ctx context.Context) (*models.User, error) {
 	var user models.User
 	if err := r.db.WithContext(ctx).Order("id ASC").First(&user).Error; err != nil {
 		return nil, err
 	}
 	return &user, nil
+}
+
+func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
+	return r.db.WithContext(ctx).Save(user).Error
 }

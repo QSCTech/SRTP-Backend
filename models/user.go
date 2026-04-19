@@ -5,6 +5,7 @@ import "time"
 type User struct {
 	ID            uint      `gorm:"primaryKey"`
 	AuthUID       string    `gorm:"uniqueIndex;size:64;not null"`
+	OpenID        string    `gorm:"uniqueIndex;size:64"`
 	Nickname      string    `gorm:"size:30"`
 	AvatarURL     string    `gorm:"size:255"`
 	Gender        string    `gorm:"size:16"`

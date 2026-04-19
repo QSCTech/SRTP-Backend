@@ -2,6 +2,7 @@ package repository
 
 import (
 	"context"
+	"time"
 
 	"github.com/QSCTech/SRTP-Backend/models"
 	"gorm.io/gorm"
@@ -9,11 +10,12 @@ import (
 
 type RoomFilter struct {
 	Keyword      *string
-	SportCode    *string
+	SportType    *string
+	Campus       *string
+	Date         *time.Time
+	TimeRange    *string
 	Organization *string
-	TimeSlot     *string
-	SkillLevel   *string
-	Atmosphere   *string
+	Level        *string
 	Page         int
 	PageSize     int
 }
@@ -30,6 +32,10 @@ func (r *RoomRepository) Create(ctx context.Context, room *models.Room) error {
 	return r.db.WithContext(ctx).Create(room).Error
 }
 
+func (r *RoomRepository) Update(ctx context.Context, room *models.Room) error {
+	return r.db.WithContext(ctx).Save(room).Error
+}
+
 func (r *RoomRepository) GetByID(ctx context.Context, id uint) (*models.Room, error) {
 	var room models.Room
 	if err := r.db.WithContext(ctx).Preload("Owner").First(&room, id).Error; err != nil {
@@ -40,7 +46,7 @@ func (r *RoomRepository) GetByID(ctx context.Context, id uint) (*models.Room, er
 
 func (r *RoomRepository) GetByInviteCode(ctx context.Context, code string) (*models.Room, error) {
 	var room models.Room
-	if err := r.db.WithContext(ctx).Where("invite_code = ?", code).First(&room).Error; err != nil {
+	if err := r.db.WithContext(ctx).Preload("Owner").Where("invite_code = ?", code).First(&room).Error; err != nil {
 		return nil, err
 	}
 	return &room, nil
@@ -52,25 +58,32 @@ type RoomListResult struct {
 }
 
 func (r *RoomRepository) List(ctx context.Context, f RoomFilter) (*RoomListResult, error) {
-	q := r.db.WithContext(ctx).Model(&models.Room{}).Preload("Owner").Where("visibility = 'public'")
+	q := r.db.WithContext(ctx).Model(&models.Room{}).Preload("Owner").
+		Where("visibility = ?", "public").
+		Where("status IN ?", []string{"recruiting", "full", "ongoing"})
 
 	if f.Keyword != nil && *f.Keyword != "" {
-		q = q.Where("name ILIKE ? OR location_text ILIKE ?", "%"+*f.Keyword+"%", "%"+*f.Keyword+"%")
+		q = q.Where("name ILIKE ? OR campus_name ILIKE ? OR venue_name ILIKE ? OR organization ILIKE ?", "%"+*f.Keyword+"%", "%"+*f.Keyword+"%", "%"+*f.Keyword+"%", "%"+*f.Keyword+"%")
 	}
-	if f.SportCode != nil && *f.SportCode != "" {
-		q = q.Where("sport_code = ?", *f.SportCode)
+	if f.SportType != nil && *f.SportType != "" {
+		q = q.Where("sport_type = ?", *f.SportType)
+	}
+	if f.Campus != nil && *f.Campus != "" {
+		q = q.Where("campus_name ILIKE ?", "%"+*f.Campus+"%")
 	}
 	if f.Organization != nil && *f.Organization != "" {
-		q = q.Where("organization_text ILIKE ?", "%"+*f.Organization+"%")
+		q = q.Where("organization ILIKE ?", "%"+*f.Organization+"%")
 	}
-	if f.SkillLevel != nil && *f.SkillLevel != "" {
-		q = q.Where("skill_level = ?", *f.SkillLevel)
+	if f.Level != nil && *f.Level != "" {
+		q = q.Where("level_desc ILIKE ?", "%"+*f.Level+"%")
 	}
-	if f.Atmosphere != nil && *f.Atmosphere != "" {
-		q = q.Where("atmosphere = ?", *f.Atmosphere)
+	if f.Date != nil && !f.Date.IsZero() {
+		start := time.Date(f.Date.Year(), f.Date.Month(), f.Date.Day(), 0, 0, 0, 0, f.Date.Location())
+		end := start.Add(24 * time.Hour)
+		q = q.Where("start_time >= ? AND start_time < ?", start, end)
 	}
-	if f.TimeSlot != nil && *f.TimeSlot != "" {
-		switch *f.TimeSlot {
+	if f.TimeRange != nil && *f.TimeRange != "" {
+		switch *f.TimeRange {
 		case "morning":
 			q = q.Where("EXTRACT(HOUR FROM start_time AT TIME ZONE 'Asia/Shanghai') BETWEEN 6 AND 11")
 		case "afternoon":
@@ -102,6 +115,40 @@ func (r *RoomRepository) List(ctx context.Context, f RoomFilter) (*RoomListResul
 	return &RoomListResult{Items: items, Total: total}, nil
 }
 
+func (r *RoomRepository) ListRoomsByOwner(ctx context.Context, ownerID uint, page, pageSize int) (*RoomListResult, error) {
+	q := r.db.WithContext(ctx).Model(&models.Room{}).Preload("Owner").Where("owner_id = ?", ownerID)
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	var items []models.Room
+	if err := q.Order("start_time DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
+		return nil, err
+	}
+
+	return &RoomListResult{Items: items, Total: total}, nil
+}
+
+func (r *RoomRepository) ListRoomsJoinedByUser(ctx context.Context, userID uint, page, pageSize int) (*RoomListResult, error) {
+	q := r.db.WithContext(ctx).Model(&models.Room{}).Preload("Owner").
+		Joins("JOIN room_members ON room_members.room_id = rooms.id").
+		Where("room_members.user_id = ? AND room_members.status = ?", userID, "joined")
+
+	var total int64
+	if err := q.Count(&total).Error; err != nil {
+		return nil, err
+	}
+
+	var items []models.Room
+	if err := q.Order("rooms.start_time DESC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
+		return nil, err
+	}
+
+	return &RoomListResult{Items: items, Total: total}, nil
+}
+
 func (r *RoomRepository) GetMembersByRoomID(ctx context.Context, roomID uint) ([]models.RoomMember, error) {
 	var members []models.RoomMember
 	if err := r.db.WithContext(ctx).Preload("User").Where("room_id = ?", roomID).Find(&members).Error; err != nil {
@@ -122,13 +169,53 @@ func (r *RoomRepository) CreateMember(ctx context.Context, member *models.RoomMe
 	return r.db.WithContext(ctx).Create(member).Error
 }
 
+func (r *RoomRepository) UpdateMember(ctx context.Context, member *models.RoomMember) error {
+	return r.db.WithContext(ctx).Save(member).Error
+}
+
 func (r *RoomRepository) CreateJoinRequest(ctx context.Context, req *models.JoinRequest) error {
 	return r.db.WithContext(ctx).Create(req).Error
+}
+
+func (r *RoomRepository) GetJoinRequestByID(ctx context.Context, requestID uint) (*models.JoinRequest, error) {
+	var req models.JoinRequest
+	if err := r.db.WithContext(ctx).First(&req, requestID).Error; err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+func (r *RoomRepository) UpdateJoinRequest(ctx context.Context, req *models.JoinRequest) error {
+	return r.db.WithContext(ctx).Save(req).Error
 }
 
 func (r *RoomRepository) CountActiveMembers(ctx context.Context, roomID uint) (int64, error) {
 	var count int64
 	if err := r.db.WithContext(ctx).Model(&models.RoomMember{}).Where("room_id = ? AND status = 'joined'", roomID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *RoomRepository) CountRoomsByOwner(ctx context.Context, ownerID uint) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.Room{}).Where("owner_id = ?", ownerID).Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *RoomRepository) CountJoinedRoomsByUser(ctx context.Context, userID uint) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.RoomMember{}).Where("user_id = ? AND status = ?", userID, "joined").Count(&count).Error; err != nil {
+		return 0, err
+	}
+	return count, nil
+}
+
+func (r *RoomRepository) CountPendingJoinRequestsByUser(ctx context.Context, userID uint) (int64, error) {
+	var count int64
+	if err := r.db.WithContext(ctx).Model(&models.JoinRequest{}).Where("user_id = ? AND status = ?", userID, "pending").Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil
