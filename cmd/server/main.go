@@ -10,7 +10,6 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/gin-gonic/gin"
 	"github.com/QSCTech/SRTP-Backend/internal/api"
 	"github.com/QSCTech/SRTP-Backend/internal/config"
 	"github.com/QSCTech/SRTP-Backend/internal/database"
@@ -18,6 +17,7 @@ import (
 	"github.com/QSCTech/SRTP-Backend/internal/repository"
 	"github.com/QSCTech/SRTP-Backend/internal/service"
 	"github.com/QSCTech/SRTP-Backend/models"
+	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
 )
 
@@ -33,14 +33,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "init logger: %v\n", err)
 		os.Exit(1)
 	}
-	defer func() {
-		_ = log.Sync()
-	}()
+	defer func() { _ = log.Sync() }()
 
-	log = log.With(
-		zap.String("service", "srtp-backend"),
-		zap.String("env", cfg.AppEnv),
-	)
+	log = log.With(zap.String("service", "srtp-backend"), zap.String("env", cfg.AppEnv))
 
 	if cfg.AppEnv == "production" {
 		gin.SetMode(gin.ReleaseMode)
@@ -56,6 +51,8 @@ func main() {
 		&models.Room{},
 		&models.RoomMember{},
 		&models.JoinRequest{},
+		&models.RoomReservation{},
+		&models.ReservationAttemptLog{},
 		&models.UserProfileAudit{},
 		&models.Notification{},
 	); err != nil {
@@ -66,15 +63,15 @@ func main() {
 	if err != nil {
 		log.Fatal("get sql db", zap.Error(err))
 	}
-	defer func() {
-		_ = sqlDB.Close()
-	}()
+	defer func() { _ = sqlDB.Close() }()
 
 	userRepository := repository.NewUserRepository(gormDB)
 	userService := service.NewUserService(userRepository)
 	roomRepository := repository.NewRoomRepository(gormDB)
 	roomService := service.NewRoomService(roomRepository, userService)
-	engine := api.NewRouter(log, sqlDB, userService, roomService)
+	reservationRepository := repository.NewReservationRepository(gormDB)
+	reservationService := service.NewReservationService(roomRepository, reservationRepository)
+	engine := api.NewRouter(log, sqlDB, userService, roomService, reservationService)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

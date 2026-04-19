@@ -1,10 +1,40 @@
-openapi: 3.0.3
+﻿openapi: 3.0.3
 info:
   title: SRTP Backend API
-  version: 0.1.0
+  version: 0.2.0
 servers:
   - url: /
 paths:
+  /auth/wx/login:
+    post:
+      operationId: loginWithWechat
+      summary: Login with wx.login code
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/WxLoginRequest'
+      responses:
+        '200':
+          description: Login result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /auth/logout:
+    post:
+      operationId: logoutCurrentUser
+      summary: Logout current user
+      responses:
+        '204':
+          description: Logged out
   /healthz:
     get:
       operationId: getHealthz
@@ -33,7 +63,7 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /api/v1/users:
+  /users:
     post:
       operationId: createUser
       summary: Create a user record
@@ -56,18 +86,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /api/v1/users/{id}:
+  /users/{id}:
     get:
       operationId: getUserById
       summary: Get a user by id
       parameters:
-        - in: path
-          name: id
-          required: true
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
+        - $ref: '#/components/parameters/UserIdPath'
       responses:
         '200':
           description: User found
@@ -81,7 +105,86 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /api/v1/rooms:
+  /me:
+    get:
+      operationId: getCurrentUser
+      summary: Get current user profile
+      responses:
+        '200':
+          description: Current user
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '404':
+          description: User not found
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/profile:
+    put:
+      operationId: updateCurrentUserProfile
+      summary: Update current user profile with synchronous blocked-word validation
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateProfileRequest'
+      responses:
+        '200':
+          description: Updated user profile
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /me/rooms/created:
+    get:
+      operationId: listMyCreatedRooms
+      summary: List rooms created by current user
+      parameters:
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/PageSizeQuery'
+      responses:
+        '200':
+          description: Created rooms
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomCardPage'
+  /me/rooms/joined:
+    get:
+      operationId: listMyJoinedRooms
+      summary: List rooms joined by current user
+      parameters:
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/PageSizeQuery'
+      responses:
+        '200':
+          description: Joined rooms
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomCardPage'
+  /me/stats:
+    get:
+      operationId: getMyStats
+      summary: Get current user stats
+      responses:
+        '200':
+          description: User stats
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserStatsResponse'
+  /rooms:
     get:
       operationId: listRooms
       summary: List rooms
@@ -91,7 +194,20 @@ paths:
           schema:
             type: string
         - in: query
-          name: sport_code
+          name: sport_type
+          schema:
+            type: string
+        - in: query
+          name: campus
+          schema:
+            type: string
+        - in: query
+          name: date
+          schema:
+            type: string
+            format: date
+        - in: query
+          name: time_range
           schema:
             type: string
         - in: query
@@ -99,30 +215,11 @@ paths:
           schema:
             type: string
         - in: query
-          name: time_slot
+          name: level
           schema:
             type: string
-        - in: query
-          name: skill_level
-          schema:
-            type: string
-        - in: query
-          name: atmosphere
-          schema:
-            type: string
-        - in: query
-          name: page
-          schema:
-            type: integer
-            format: int32
-            minimum: 1
-        - in: query
-          name: page_size
-          schema:
-            type: integer
-            format: int32
-            minimum: 1
-            maximum: 100
+        - $ref: '#/components/parameters/PageQuery'
+        - $ref: '#/components/parameters/PageSizeQuery'
       responses:
         '200':
           description: Room list
@@ -158,18 +255,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /api/v1/rooms/{roomId}:
+  /rooms/{roomId}:
     get:
       operationId: getRoomById
       summary: Get room detail
       parameters:
-        - in: path
-          name: roomId
-          required: true
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
+        - $ref: '#/components/parameters/RoomIdPath'
       responses:
         '200':
           description: Room found
@@ -183,7 +274,50 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /api/v1/rooms/join-by-code:
+    put:
+      operationId: updateRoom
+      summary: Update room detail
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateRoomRequest'
+      responses:
+        '200':
+          description: Updated room
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomDetail'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/close:
+    post:
+      operationId: closeRoom
+      summary: Close a room
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+      responses:
+        '200':
+          description: Room closed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RoomDetail'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /rooms/join-by-code:
     post:
       operationId: joinRoomByCode
       summary: Join a room by invite code
@@ -206,18 +340,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /api/v1/rooms/{roomId}/join:
+  /rooms/{roomId}/join:
     post:
       operationId: joinRoomDirectly
       summary: Join a room directly
       parameters:
-        - in: path
-          name: roomId
-          required: true
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
+        - $ref: '#/components/parameters/RoomIdPath'
       responses:
         '200':
           description: Joined successfully
@@ -231,18 +359,12 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /api/v1/rooms/{roomId}/requests:
+  /rooms/{roomId}/apply:
     post:
       operationId: createJoinRequest
       summary: Create a join request
       parameters:
-        - in: path
-          name: roomId
-          required: true
-          schema:
-            type: integer
-            format: int64
-            minimum: 1
+        - $ref: '#/components/parameters/RoomIdPath'
       requestBody:
         required: true
         content:
@@ -262,7 +384,251 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/approve:
+    post:
+      operationId: approveJoinRequest
+      summary: Approve a join request
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewJoinRequestRequest'
+      responses:
+        '200':
+          description: Join request approved
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/reject:
+    post:
+      operationId: rejectJoinRequest
+      summary: Reject a join request
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReviewJoinRequestRequest'
+      responses:
+        '200':
+          description: Join request rejected
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/invite:
+    post:
+      operationId: inviteRoomMember
+      summary: Invite a member into room
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/InviteMemberRequest'
+      responses:
+        '200':
+          description: Invite result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberActionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/members/{userId}/remove:
+    post:
+      operationId: removeRoomMember
+      summary: Remove a member from room
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+        - $ref: '#/components/parameters/MemberUserIdPath'
+      responses:
+        '200':
+          description: Remove result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberActionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /reservations/venues:
+    get:
+      operationId: listReservationVenues
+      summary: List supported reservation venues
+      parameters:
+        - in: query
+          name: sport_type
+          schema:
+            type: string
+        - in: query
+          name: campus
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Venue list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationVenueListResponse'
+  /reservations/slots:
+    get:
+      operationId: listReservationSlots
+      summary: List supported reservation slots
+      parameters:
+        - in: query
+          name: sport_type
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: campus_name
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: venue_name
+          required: true
+          schema:
+            type: string
+        - in: query
+          name: reservation_date
+          required: true
+          schema:
+            type: string
+            format: date
+      responses:
+        '200':
+          description: Reservation slot list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationSlotListResponse'
+        '400':
+          description: Invalid query
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/reservation/preview:
+    post:
+      operationId: previewRoomReservation
+      summary: Preview reservation for a room
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationSubmitRequest'
+      responses:
+        '200':
+          description: Reservation preview
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationPreviewResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/reservation/submit:
+    post:
+      operationId: submitRoomReservation
+      summary: Submit reservation for a room
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReservationSubmitRequest'
+      responses:
+        '200':
+          description: Reservation submit result
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ReservationRecordResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
 components:
+  parameters:
+    UserIdPath:
+      in: path
+      name: id
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    RoomIdPath:
+      in: path
+      name: roomId
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    MemberUserIdPath:
+      in: path
+      name: userId
+      required: true
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+    PageQuery:
+      in: query
+      name: page
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+    PageSizeQuery:
+      in: query
+      name: page_size
+      schema:
+        type: integer
+        format: int32
+        minimum: 1
+        maximum: 100
   schemas:
     HealthResponse:
       type: object
@@ -294,6 +660,34 @@ components:
           type: string
           minLength: 1
           maxLength: 64
+    WxLoginRequest:
+      type: object
+      required: [code]
+      properties:
+        code:
+          type: string
+          minLength: 1
+          maxLength: 128
+        auth_uid:
+          type: string
+          minLength: 1
+          maxLength: 64
+    UpdateProfileRequest:
+      type: object
+      description: Update current user profile. Nickname and bio must pass synchronous blocked-word validation before persistence.
+      properties:
+        nickname:
+          type: string
+          maxLength: 30
+        avatar_url:
+          type: string
+          maxLength: 255
+        gender:
+          type: string
+          maxLength: 16
+        bio:
+          type: string
+          maxLength: 255
     User:
       type: object
       required:
@@ -322,6 +716,7 @@ components:
           type: string
         profile_status:
           type: string
+          description: Current profile state. This version uses synchronous blocked-word validation instead of manual review workflow.
         created_at:
           type: string
           format: date-time
@@ -330,6 +725,19 @@ components:
           format: date-time
     UserResponse:
       $ref: '#/components/schemas/User'
+    UserStatsResponse:
+      type: object
+      required: [created_room_count, joined_room_count, pending_join_request_count]
+      properties:
+        created_room_count:
+          type: integer
+          format: int64
+        joined_room_count:
+          type: integer
+          format: int64
+        pending_join_request_count:
+          type: integer
+          format: int64
     RoomOwner:
       type: object
       required: [id, nickname, avatar_url]
@@ -361,28 +769,37 @@ components:
       required:
         - id
         - name
-        - sport_code
+        - sport_type
+        - campus_name
+        - venue_name
         - start_time
-        - location_text
+        - end_time
         - owner_nickname
         - owner_avatar_url
         - current_member_count
         - max_member_count
-        - join_policy
+        - join_mode
+        - visibility
         - status
+        - reservation_status
       properties:
         id:
           type: integer
           format: int64
         name:
           type: string
-        sport_code:
+        sport_type:
+          type: string
+        campus_name:
+          type: string
+        venue_name:
           type: string
         start_time:
           type: string
           format: date-time
-        location_text:
+        end_time:
           type: string
+          format: date-time
         owner_nickname:
           type: string
         owner_avatar_url:
@@ -393,9 +810,13 @@ components:
         max_member_count:
           type: integer
           format: int32
-        join_policy:
+        join_mode:
+          type: string
+        visibility:
           type: string
         status:
+          type: string
+        reservation_status:
           type: string
     RoomCardPage:
       type: object
@@ -419,17 +840,16 @@ components:
       required:
         - id
         - name
-        - sport_code
+        - sport_type
+        - campus_name
+        - venue_name
         - visibility
-        - join_policy
+        - join_mode
         - status
-        - location_text
+        - reservation_status
+        - need_reservation
         - start_time
-        - gender_requirement
-        - organization_text
-        - skill_level
-        - atmosphere
-        - description
+        - end_time
         - owner
         - members
         - current_member_count
@@ -441,37 +861,42 @@ components:
           format: int64
         name:
           type: string
-        sport_code:
+        sport_type:
+          type: string
+        campus_name:
+          type: string
+        venue_name:
           type: string
         visibility:
           type: string
-        join_policy:
+        join_mode:
           type: string
         status:
           type: string
-        location_text:
+        reservation_status:
           type: string
+        reservation_provider:
+          type: string
+        need_reservation:
+          type: boolean
         start_time:
           type: string
           format: date-time
         end_time:
           type: string
           format: date-time
-        gender_requirement:
+        gender_rule:
           type: string
-        min_members:
+        member_limit:
           type: integer
           format: int32
-        max_members:
-          type: integer
-          format: int32
-        organization_text:
+        organization:
           type: string
-        skill_level:
-          type: string
-        atmosphere:
+        level_desc:
           type: string
         description:
+          type: string
+        invite_code:
           type: string
         owner:
           $ref: '#/components/schemas/RoomOwner'
@@ -490,46 +915,81 @@ components:
       type: object
       required:
         - name
-        - sport_code
+        - sport_type
+        - campus_name
+        - venue_name
         - visibility
-        - join_policy
-        - location_text
+        - join_mode
         - start_time
+        - end_time
       properties:
         name:
           type: string
           maxLength: 32
-        sport_code:
+        sport_type:
           type: string
           maxLength: 32
-        visibility:
+        campus_name:
           type: string
-        join_policy:
-          type: string
-        location_text:
+          maxLength: 64
+        venue_name:
           type: string
           maxLength: 128
+        visibility:
+          type: string
+        join_mode:
+          type: string
         start_time:
           type: string
           format: date-time
         end_time:
           type: string
           format: date-time
-        gender_requirement:
+        need_reservation:
+          type: boolean
+        gender_rule:
           type: string
-        min_members:
+        member_limit:
           type: integer
           format: int32
-        max_members:
-          type: integer
-          format: int32
-        organization_text:
+        organization:
           type: string
           maxLength: 64
-        skill_level:
+        level_desc:
           type: string
-        atmosphere:
+          maxLength: 64
+        description:
           type: string
+          maxLength: 500
+    UpdateRoomRequest:
+      type: object
+      properties:
+        name:
+          type: string
+          maxLength: 32
+        visibility:
+          type: string
+        join_mode:
+          type: string
+        start_time:
+          type: string
+          format: date-time
+        end_time:
+          type: string
+          format: date-time
+        need_reservation:
+          type: boolean
+        gender_rule:
+          type: string
+        member_limit:
+          type: integer
+          format: int32
+        organization:
+          type: string
+          maxLength: 64
+        level_desc:
+          type: string
+          maxLength: 64
         description:
           type: string
           maxLength: 500
@@ -561,6 +1021,14 @@ components:
         message:
           type: string
           maxLength: 255
+    ReviewJoinRequestRequest:
+      type: object
+      required: [request_id]
+      properties:
+        request_id:
+          type: integer
+          format: int64
+          minimum: 1
     JoinRequestResponse:
       type: object
       required: [request_id, status]
@@ -570,3 +1038,207 @@ components:
           format: int64
         status:
           type: string
+    InviteMemberRequest:
+      type: object
+      required: [user_id]
+      properties:
+        user_id:
+          type: integer
+          format: int64
+          minimum: 1
+    MemberActionResponse:
+      type: object
+      required: [room_id, user_id, status]
+      properties:
+        room_id:
+          type: integer
+          format: int64
+        user_id:
+          type: integer
+          format: int64
+        status:
+          type: string
+    ReservationVenue:
+      type: object
+      required: [sport_type, campus_name, venue_name]
+      properties:
+        sport_type:
+          type: string
+        campus_name:
+          type: string
+        venue_name:
+          type: string
+    ReservationVenueListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservationVenue'
+    ReservationSlot:
+      type: object
+      required: [slot_key, start_time, end_time, available]
+      properties:
+        slot_key:
+          type: string
+        start_time:
+          type: string
+        end_time:
+          type: string
+        available:
+          type: boolean
+        space_name:
+          type: string
+    ReservationSlotListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservationSlot'
+    ReservationSubmitRequest:
+      type: object
+      required:
+        - sport_type
+        - campus_name
+        - venue_name
+        - reservation_date
+        - start_time
+        - end_time
+      properties:
+        sport_type:
+          type: string
+        campus_name:
+          type: string
+        venue_name:
+          type: string
+        reservation_date:
+          type: string
+          format: date
+        start_time:
+          type: string
+        end_time:
+          type: string
+        buddy_code:
+          type: string
+        venue_id:
+          type: integer
+          format: int64
+        venue_site_id:
+          type: integer
+          format: int64
+        space_id:
+          type: integer
+          format: int64
+        space_name:
+          type: string
+    ReservationPreviewResponse:
+      type: object
+      required:
+        - room_id
+        - provider
+        - reservation_status
+        - sport_type
+        - campus_name
+        - venue_name
+        - reservation_date
+        - start_time
+        - end_time
+      properties:
+        room_id:
+          type: integer
+          format: int64
+        provider:
+          type: string
+        reservation_status:
+          type: string
+        sport_type:
+          type: string
+        campus_name:
+          type: string
+        venue_name:
+          type: string
+        reservation_date:
+          type: string
+          format: date
+        start_time:
+          type: string
+        end_time:
+          type: string
+        buddy_code:
+          type: string
+        venue_id:
+          type: integer
+          format: int64
+        venue_site_id:
+          type: integer
+          format: int64
+        space_id:
+          type: integer
+          format: int64
+        space_name:
+          type: string
+    ReservationRecordResponse:
+      type: object
+      required:
+        - id
+        - room_id
+        - provider
+        - reservation_status
+        - sport_type
+        - campus_name
+        - venue_name
+        - reservation_date
+        - start_time
+        - end_time
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: integer
+          format: int64
+        room_id:
+          type: integer
+          format: int64
+        provider:
+          type: string
+        reservation_status:
+          type: string
+        sport_type:
+          type: string
+        campus_name:
+          type: string
+        venue_name:
+          type: string
+        reservation_date:
+          type: string
+          format: date
+        start_time:
+          type: string
+        end_time:
+          type: string
+        buddy_code:
+          type: string
+        venue_id:
+          type: integer
+          format: int64
+        venue_site_id:
+          type: integer
+          format: int64
+        space_id:
+          type: integer
+          format: int64
+        space_name:
+          type: string
+        external_order_id:
+          type: string
+        external_trade_no:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time

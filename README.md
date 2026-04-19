@@ -129,13 +129,9 @@ It:
 - configures the connection pool
 - pings the database on startup
 
-Current app startup in `cmd/server/main.go` also runs:
+Current app startup in `cmd/server/main.go` also runs GORM `AutoMigrate` for the current models.
 
-```go
-gormDB.AutoMigrate(&models.User{})
-```
-
-So the sample `users` table is created automatically.
+For example, the `users` table is created automatically when the service starts successfully against PostgreSQL.
 
 Default local DB credentials from Compose:
 
@@ -144,6 +140,22 @@ Default local DB credentials from Compose:
 - user: `postgres`
 - password: `postgres`
 - database: `srtp`
+
+### Inspect tables
+
+If PostgreSQL is running in Docker Compose, you can open a `psql` shell with:
+
+```bash
+docker compose exec postgres psql -U postgres -d srtp
+```
+
+Then inspect tables interactively:
+
+```sql
+\dt
+\d users
+\q
+```
 
 ## OpenAPI Workflow
 
@@ -177,10 +189,40 @@ Equivalent Make targets:
 
 ## Current Endpoints
 
+Health:
 - `GET /healthz`
 - `GET /readyz`
-- `POST /api/v1/users`
-- `GET /api/v1/users/{id}`
+
+Auth / Profile:
+- `POST /auth/wx/login`
+- `POST /auth/logout`
+- `GET /me`
+- `PUT /me/profile`
+- `GET /me/rooms/created`
+- `GET /me/rooms/joined`
+- `GET /me/stats`
+
+Rooms:
+- `GET /rooms`
+- `POST /rooms`
+- `GET /rooms/{roomId}`
+- `PUT /rooms/{roomId}`
+- `POST /rooms/{roomId}/close`
+
+Membership:
+- `POST /rooms/join-by-code`
+- `POST /rooms/{roomId}/join`
+- `POST /rooms/{roomId}/apply`
+- `POST /rooms/{roomId}/approve`
+- `POST /rooms/{roomId}/reject`
+- `POST /rooms/{roomId}/invite`
+- `POST /rooms/{roomId}/members/{userId}/remove`
+
+Reservations:
+- `GET /reservations/venues`
+- `GET /reservations/slots`
+- `POST /rooms/{roomId}/reservation/preview`
+- `POST /rooms/{roomId}/reservation/submit`
 
 ## Adding a New Endpoint
 
@@ -207,24 +249,30 @@ Recommended sequence:
 ```bash
 curl http://localhost:8080/healthz
 curl http://localhost:8080/readyz
-curl -X POST http://localhost:8080/api/v1/users \
-  -H "Content-Type: application/json" \
-  -d '{"name":"Alice"}'
-curl http://localhost:8080/api/v1/users/1
+curl "http://localhost:8080/rooms?page=1&page_size=10"
 ```
+
+More business endpoints are defined in `api/openapi/openapi.yaml`, but some service-layer modules are still scaffold-only.
+
+## Development Status
+
+At this stage:
+
+- OpenAPI and GORM models are the main contract source
+- some handler wiring is already present
+- several service-layer modules are intentionally scaffolded so feature groups can implement their own business logic
+- when OpenAPI changes, regenerate code with `make generate`
 
 ## Current Scope
 
-The repo is still in scaffold stage. The current vertical slice exists mainly to validate:
+The repo currently provides:
 
 - project structure
 - PostgreSQL integration
 - OpenAPI code generation
 - handler/service/repository layering
 - Docker-based local development
+- unified HTTP contract in `api/openapi/openapi.yaml`
+- core data models for users, rooms, membership, and reservations
 
-The next real feature areas from `introduction.md` are expected to be:
-- lobby / room listing
-- profile
-- room creation
-- room management
+Some business modules are still scaffolded on purpose so different groups can implement them independently on top of the shared contract.

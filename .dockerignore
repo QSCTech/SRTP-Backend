@@ -1,6 +1,7 @@
 .git
 .gitignore
 .env
+.env.zju
 .vscode
 .idea
 bin
@@ -9,3 +10,5 @@ coverage.out
 *.exe
 *.test
 *.out
+__pycache__
+*.pyc
