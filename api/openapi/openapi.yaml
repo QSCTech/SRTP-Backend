@@ -483,13 +483,21 @@ paths:
     get:
       operationId: listReservationVenues
       summary: List supported reservation venues
+      description: |
+        返回所有可预约的场馆列表，支持按球类(sport_type)和校区(campus)筛选。
+        可选值来自 TYYS 体育馆系统：
+        - **sport_type** 可选值：羽毛球、健身、游泳、网球
+        - **campus** 可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
+        示例：sport_type=羽毛球&campus=紫金港 返回紫金港校区所有羽毛球场馆
       parameters:
         - in: query
           name: sport_type
+          description: 球类类型，如羽毛球、健身、游泳、网球
           schema:
             type: string
         - in: query
           name: campus
+          description: 校区名称，如紫金港校区、华家池校区、玉泉校区、西溪校区
           schema:
             type: string
       responses:
@@ -502,29 +510,43 @@ paths:
   /reservations/slots:
     get:
       operationId: listReservationSlots
-      summary: List supported reservation slots
+      summary: List available time slots for a venue
+      description: |
+        查询指定场馆在某日期的可预约时间段。
+        - **sport_type** 可选值：羽毛球、健身、游泳、网球
+        - **campus_name** 可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
+        - **venue_name** 可选值（按校区和球类不同）：如风雨操场、体育馆、羽毛球馆、游泳馆等
+        - **reservation_date** 格式：YYYY-MM-DD，如 2026-04-21
       parameters:
         - in: query
           name: sport_type
+          description: 球类类型。可选值：羽毛球、健身、游泳、网球
           required: true
           schema:
             type: string
+            example: 羽毛球
         - in: query
           name: campus_name
+          description: 校区名称。可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
           required: true
           schema:
             type: string
+            example: 紫金港校区
         - in: query
           name: venue_name
+          description: 场馆名称
           required: true
           schema:
             type: string
+            example: 风雨操场
         - in: query
           name: reservation_date
+          description: 预约日期，格式 YYYY-MM-DD
           required: true
           schema:
             type: string
             format: date
+            example: "2026-04-21"
       responses:
         '200':
           description: Reservation slot list
@@ -1061,13 +1083,17 @@ components:
     ReservationVenue:
       type: object
       required: [sport_type, campus_name, venue_name]
+      description: 场馆信息
       properties:
         sport_type:
           type: string
+          description: 球类类型。可选值：羽毛球、健身、游泳、网球
         campus_name:
           type: string
+          description: 校区名称。可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
         venue_name:
           type: string
+          description: 场馆名称
     ReservationVenueListResponse:
       type: object
       required: [items]
@@ -1079,17 +1105,26 @@ components:
     ReservationSlot:
       type: object
       required: [slot_key, start_time, end_time, available]
+      description: 预约时间段
       properties:
         slot_key:
           type: string
+          description: 时间段唯一标识，用于提交预约
+          example: "123456"
         start_time:
           type: string
+          description: 开始时间，格式 HH:mm 或 YYYY-MM-DD HH:mm
+          example: "2026-04-21 08:30"
         end_time:
           type: string
+          description: 结束时间，格式 HH:mm 或 YYYY-MM-DD HH:mm
+          example: "2026-04-21 09:30"
         available:
           type: boolean
+          description: 是否可预约
         space_name:
           type: string
+          description: 场地名称（如羽毛球场1号场）
     ReservationSlotListResponse:
       type: object
       required: [items]
