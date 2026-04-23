@@ -564,6 +564,23 @@ paths:
     post:
       operationId: previewRoomReservation
       summary: Preview reservation for a room
+      description: |
+        预约预览接口，在正式提交前校验预约参数的合法性并返回确认信息。
+        **不写库、不占用场地**，仅做以下校验：
+        - 房间存在且状态为 recruiting / full（非 cancelled / finished）
+        - 房间设置了 need_reservation=true
+        - 球类前置条件：羽毛球、网球必须提供 buddy_code；最低人数不足时直接拒绝
+        - 调用 TYYS 确认指定日期、时间段存在且至少有一个球场可约
+
+        返回的 venue_id / venue_site_id 为 TYYS 已解析的场馆 ID，提交时可直接复用，
+        避免 submit 再做一次场馆查询。
+
+        **错误场景**：
+        - `400 room does not require reservation` — 房间无需预约
+        - `400 sport X requires a buddy code` — 未提供同伴码
+        - `400 sport X requires at least N members` — 房间人数不足
+        - `400 venue not found` — TYYS 找不到对应场馆
+        - `400 slot not found / not available` — 该时段不存在或已被占用
       parameters:
         - $ref: '#/components/parameters/RoomIdPath'
       requestBody:
@@ -574,13 +591,13 @@ paths:
               $ref: '#/components/schemas/ReservationSubmitRequest'
       responses:
         '200':
-          description: Reservation preview
+          description: 预约参数合法，返回预览信息（包含解析后的 venue_id / venue_site_id）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReservationPreviewResponse'
         '400':
-          description: Invalid request
+          description: 参数不合法或校验失败
           content:
             application/json:
               schema:
@@ -589,6 +606,24 @@ paths:
     post:
       operationId: submitRoomReservation
       summary: Submit reservation for a room
+      description: |
+        正式提交预约计划，写库并根据 TYYS 开放时间规则决定初始状态。
+        **校验逻辑与 preview 相同**（房间状态、同伴码、最低人数、TYYS 时段可用性）。
+
+        **TYYS 开放时间规则**：
+        - TYYS 仅在预约日期前 2 天的 09:00 CST 开放预约窗口
+        - 当前时间 < 开放时间 → `reservation_status: scheduled`，记录 reserve_open_at
+        - 当前时间 ≥ 开放时间 → `reservation_status: submitting`，等待调度器立即处理
+
+        **真正调用 TYYS 的时机**由后端调度器（POST /internal/tasks/reservation-trigger）负责，
+        不在本接口内同步完成，因此本接口不受验证码的影响，响应较快。
+
+        **幂等性**：同一房间已有 scheduled / submitting / success 状态时拒绝重复提交；
+        failed 状态允许重新提交。
+
+        **错误场景**：
+        - `400 room already has an active reservation` — 已有进行中的预约计划
+        - 其余同 preview 接口
       parameters:
         - $ref: '#/components/parameters/RoomIdPath'
       requestBody:
@@ -599,13 +634,13 @@ paths:
               $ref: '#/components/schemas/ReservationSubmitRequest'
       responses:
         '200':
-          description: Reservation submit result
+          description: 预约计划创建成功，返回落库后的预约记录（含 reservation_status）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReservationRecordResponse'
         '400':
-          description: Invalid request
+          description: 参数不合法、校验失败或重复提交
           content:
             application/json:
               schema:

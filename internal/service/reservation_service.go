@@ -206,11 +206,13 @@ func (s *ReservationService) ListSlots(ctx context.Context, sportType, campusNam
 		return nil, fmt.Errorf("get day info: %w", err)
 	}
 
-	// Step 3: Parse slots from day info response
+	// Step 3: Parse slots from day info response.
+	// Use walkSlotsWithTimeID so the parent map key (which is the TYYS timeId)
+	// is captured as SlotKey — slot objects themselves do not contain a timeId field.
 	var slots []ReservationSlotItem
-	walkSlots(dayResp.Data, func(slot map[string]any) {
+	walkSlotsWithTimeID(dayResp.Data, func(timeID string, slot map[string]any) {
 		item := ReservationSlotItem{
-			SlotKey:   trimString(slot["timeId"]),
+			SlotKey:   timeID,
 			StartTime: trimString(slot["startDate"]),
 			EndTime:   trimString(slot["endDate"]),
 			Available: isSlotAvailable(slot),
@@ -252,6 +254,42 @@ func walkSlots(data []byte, visit func(map[string]any)) {
 	})
 }
 
+// walkSlotsWithTimeID is like walkSlots but also captures the parent map key,
+// which is the TYYS timeId. TYYS stores slot objects as values keyed by timeId
+// inside a space object, so the timeId is only visible from the parent's perspective.
+func walkSlotsWithTimeID(data []byte, visit func(timeID string, slot map[string]any)) {
+	var payload any
+	if err := json.Unmarshal(data, &payload); err != nil {
+		return
+	}
+	walkJSONObjectsWithKey(payload, func(key string, obj map[string]any) {
+		if _, hasStart := obj["startDate"]; hasStart {
+			visit(key, obj)
+		}
+	})
+}
+
+// walkJSONObjectsWithKey recursively walks a parsed JSON structure and calls
+// visit for each map entry whose value is itself a map, passing the entry key.
+// This lets callers see the key under which each object is stored.
+func walkJSONObjectsWithKey(value any, visit func(key string, obj map[string]any)) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for k, child := range typed {
+			if obj, ok := child.(map[string]any); ok {
+				visit(k, obj)
+				walkJSONObjectsWithKey(obj, visit)
+			} else {
+				walkJSONObjectsWithKey(child, visit)
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			walkJSONObjectsWithKey(child, visit)
+		}
+	}
+}
+
 // Preview validates a proposed reservation against the room state and TYYS availability
 // without writing anything to the database. The caller uses the returned output to confirm
 // details before calling Submit.
@@ -267,10 +305,21 @@ func (s *ReservationService) Preview(ctx context.Context, input ReservationPrevi
 	if room.Status == "cancelled" || room.Status == "finished" {
 		return nil, fmt.Errorf("room is not active (status=%s)", room.Status)
 	}
+	sportCfg := getSportConfig(input.SportType)
+
 	// TYYS requires a buddy/partner code when booking pair courts (羽毛球, 网球).
 	// Fail early here so the user sees a clear error before any network call.
-	if sportRequiresBuddyCode(input.SportType) && (input.BuddyCode == nil || strings.TrimSpace(*input.BuddyCode) == "") {
+	if sportCfg.RequiresBuddyCode && (input.BuddyCode == nil || strings.TrimSpace(*input.BuddyCode) == "") {
 		return nil, fmt.Errorf("sport %s requires a buddy code", input.SportType)
+	}
+
+	// Pair sports need a minimum number of joined members before reservation makes sense.
+	memberCount, err := s.roomRepo.CountActiveMembers(ctx, input.RoomID)
+	if err != nil {
+		return nil, fmt.Errorf("count active members: %w", err)
+	}
+	if int(memberCount) < sportCfg.MinMemberCount {
+		return nil, fmt.Errorf("sport %s requires at least %d members before reservation (current: %d)", input.SportType, sportCfg.MinMemberCount, memberCount)
 	}
 
 	venueID, venueSiteID, err := s.resolveVenueIDs(ctx, input)
@@ -307,16 +356,6 @@ func (s *ReservationService) Preview(ctx context.Context, input ReservationPrevi
 	}, nil
 }
 
-// sportRequiresBuddyCode reports whether the TYYS system requires a partner (buddy) code
-// for the given sport type. Pair sports (羽毛球, 网球) must have a buddy code in the
-// order form; individual or group sports (健身, 游泳) do not.
-func sportRequiresBuddyCode(sport string) bool {
-	switch strings.TrimSpace(sport) {
-	case "羽毛球", "网球":
-		return true
-	}
-	return false
-}
 
 // resolveVenueIDs returns the TYYS venueId and venueSiteId for the requested venue.
 // If the caller already obtained these IDs (e.g. from ListSlots), they are returned
@@ -421,8 +460,17 @@ func (s *ReservationService) Submit(ctx context.Context, input ReservationPrevie
 	if room.Status == "cancelled" || room.Status == "finished" {
 		return nil, fmt.Errorf("room is not active (status=%s)", room.Status)
 	}
-	if sportRequiresBuddyCode(input.SportType) && (input.BuddyCode == nil || strings.TrimSpace(*input.BuddyCode) == "") {
+	sportCfg := getSportConfig(input.SportType)
+	if sportCfg.RequiresBuddyCode && (input.BuddyCode == nil || strings.TrimSpace(*input.BuddyCode) == "") {
 		return nil, fmt.Errorf("sport %s requires a buddy code", input.SportType)
+	}
+
+	memberCount, err := s.roomRepo.CountActiveMembers(ctx, input.RoomID)
+	if err != nil {
+		return nil, fmt.Errorf("count active members: %w", err)
+	}
+	if int(memberCount) < sportCfg.MinMemberCount {
+		return nil, fmt.Errorf("sport %s requires at least %d members before reservation (current: %d)", input.SportType, sportCfg.MinMemberCount, memberCount)
 	}
 
 	// --- 2. Idempotency: reject if an active reservation already exists ---
