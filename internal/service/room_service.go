@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"fmt"
 	"time"
 
@@ -118,12 +120,100 @@ func (s *RoomService) GetMyStats(ctx context.Context) (*UserStatsOutput, error) 
 	return nil, fmt.Errorf("room service GetMyStats not implemented")
 }
 
+// GetByID returns the room and its members (with user info preloaded).
 func (s *RoomService) GetByID(ctx context.Context, id uint) (*models.Room, []models.RoomMember, error) {
-	return nil, nil, fmt.Errorf("room service GetByID not implemented")
+	room, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	members, err := s.repo.GetMembersByRoomID(ctx, id)
+	if err != nil {
+		return nil, nil, fmt.Errorf("get members: %w", err)
+	}
+	return room, members, nil
 }
 
+// Create creates a new room and adds the current user as the owner member.
 func (s *RoomService) Create(ctx context.Context, input CreateRoomInput) (*models.Room, error) {
-	return nil, fmt.Errorf("room service Create not implemented")
+	owner, err := s.userService.GetCurrent(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("get current user: %w", err)
+	}
+
+	// reservation_status tracks the TYYS booking state; seed it from need_reservation.
+	reservationStatus := "not_required"
+	if input.NeedReservation {
+		reservationStatus = "pending"
+	}
+
+	inviteCode, err := generateInviteCode()
+	if err != nil {
+		return nil, fmt.Errorf("generate invite code: %w", err)
+	}
+
+	memberLimit := (*int)(nil)
+	if input.MemberLimit != nil {
+		v := int(*input.MemberLimit)
+		memberLimit = &v
+	}
+
+	room := &models.Room{
+		OwnerID:             owner.ID,
+		Name:                input.Name,
+		SportType:           input.SportType,
+		CampusName:          input.CampusName,
+		VenueName:           input.VenueName,
+		Visibility:          input.Visibility,
+		JoinMode:            input.JoinMode,
+		Status:              "recruiting",
+		ReservationStatus:   reservationStatus,
+		ReservationProvider: "tyys",
+		NeedReservation:     input.NeedReservation,
+		StartTime:           input.StartTime,
+		EndTime:             input.EndTime,
+		MemberLimit:         memberLimit,
+		InviteCode:          inviteCode,
+	}
+	if input.GenderRule != nil {
+		room.GenderRule = *input.GenderRule
+	}
+	if input.Organization != nil {
+		room.Organization = *input.Organization
+	}
+	if input.LevelDesc != nil {
+		room.LevelDesc = *input.LevelDesc
+	}
+	if input.Description != nil {
+		room.Description = *input.Description
+	}
+
+	if err := s.repo.Create(ctx, room); err != nil {
+		return nil, fmt.Errorf("create room: %w", err)
+	}
+
+	// Add the creator as the first member with role "owner".
+	now := time.Now()
+	ownerMember := &models.RoomMember{
+		RoomID:   room.ID,
+		UserID:   owner.ID,
+		Role:     "owner",
+		Status:   "joined",
+		JoinedAt: &now,
+	}
+	if err := s.repo.CreateMember(ctx, ownerMember); err != nil {
+		return nil, fmt.Errorf("add owner as member: %w", err)
+	}
+
+	return room, nil
+}
+
+// generateInviteCode returns an 8-character random hex string used as the room invite code.
+func generateInviteCode() (string, error) {
+	b := make([]byte, 4)
+	if _, err := rand.Read(b); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(b), nil
 }
 
 func (s *RoomService) Update(ctx context.Context, roomID uint, input UpdateRoomInput) (*models.Room, error) {

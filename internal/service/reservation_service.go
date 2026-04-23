@@ -3,14 +3,17 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QSCTech/SRTP-Backend/internal/repository"
 	"github.com/QSCTech/SRTP-Backend/internal/zjulogin"
 	"github.com/QSCTech/SRTP-Backend/models"
+	"gorm.io/gorm"
 )
 
 type ReservationVenueItem struct {
@@ -249,10 +252,290 @@ func walkSlots(data []byte, visit func(map[string]any)) {
 	})
 }
 
+// Preview validates a proposed reservation against the room state and TYYS availability
+// without writing anything to the database. The caller uses the returned output to confirm
+// details before calling Submit.
 func (s *ReservationService) Preview(ctx context.Context, input ReservationPreviewInput) (*ReservationPreviewOutput, error) {
-	return nil, fmt.Errorf("reservation service Preview not implemented")
+	room, err := s.roomRepo.GetByID(ctx, input.RoomID)
+	if err != nil {
+		return nil, fmt.Errorf("room not found: %w", err)
+	}
+	if !room.NeedReservation {
+		return nil, fmt.Errorf("room does not require reservation")
+	}
+	// Only active rooms (recruiting / full) may enter the reservation flow.
+	if room.Status == "cancelled" || room.Status == "finished" {
+		return nil, fmt.Errorf("room is not active (status=%s)", room.Status)
+	}
+	// TYYS requires a buddy/partner code when booking pair courts (羽毛球, 网球).
+	// Fail early here so the user sees a clear error before any network call.
+	if sportRequiresBuddyCode(input.SportType) && (input.BuddyCode == nil || strings.TrimSpace(*input.BuddyCode) == "") {
+		return nil, fmt.Errorf("sport %s requires a buddy code", input.SportType)
+	}
+
+	venueID, venueSiteID, err := s.resolveVenueIDs(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.checkSlotAvailable(ctx, venueID, venueSiteID, input); err != nil {
+		return nil, err
+	}
+
+	// TYYS returns IDs as strings; convert back to uint so the response carries
+	// the resolved IDs that Submit can reuse without a second venue lookup.
+	venueIDUint, _ := strconv.ParseUint(venueID, 10, 64)
+	venueSiteIDUint, _ := strconv.ParseUint(venueSiteID, 10, 64)
+	venueIDResult := uint(venueIDUint)
+	venueSiteIDResult := uint(venueSiteIDUint)
+
+	return &ReservationPreviewOutput{
+		RoomID:            input.RoomID,
+		Provider:          "tyys",
+		ReservationStatus: "pending", // preview does not submit; status stays pending until Submit succeeds
+		SportType:         input.SportType,
+		CampusName:        input.CampusName,
+		VenueName:         input.VenueName,
+		ReservationDate:   input.ReservationDate,
+		StartTime:         input.StartTime,
+		EndTime:           input.EndTime,
+		BuddyCode:         input.BuddyCode,
+		VenueID:           &venueIDResult,
+		VenueSiteID:       &venueSiteIDResult,
+		SpaceID:           input.SpaceID,
+		SpaceName:         input.SpaceName,
+	}, nil
 }
 
+// sportRequiresBuddyCode reports whether the TYYS system requires a partner (buddy) code
+// for the given sport type. Pair sports (羽毛球, 网球) must have a buddy code in the
+// order form; individual or group sports (健身, 游泳) do not.
+func sportRequiresBuddyCode(sport string) bool {
+	switch strings.TrimSpace(sport) {
+	case "羽毛球", "网球":
+		return true
+	}
+	return false
+}
+
+// resolveVenueIDs returns the TYYS venueId and venueSiteId for the requested venue.
+// If the caller already obtained these IDs (e.g. from ListSlots), they are returned
+// directly to avoid an extra round-trip to the TYYS venue-info API.
+func (s *ReservationService) resolveVenueIDs(ctx context.Context, input ReservationPreviewInput) (venueID, venueSiteID string, err error) {
+	if input.VenueID != nil && input.VenueSiteID != nil {
+		return strconv.FormatUint(uint64(*input.VenueID), 10), strconv.FormatUint(uint64(*input.VenueSiteID), 10), nil
+	}
+
+	venueResp, err := s.tyys.VenueInfo(ctx, 0)
+	if err != nil {
+		return "", "", fmt.Errorf("get venue info: %w", err)
+	}
+
+	// walkVenues has no early-exit mechanism; guard with venueID != "" to stop processing
+	// after the first match and avoid overwriting with a later duplicate entry.
+	walkVenues(venueResp.Data, func(obj map[string]any) {
+		if venueID != "" {
+			return
+		}
+		if !textMatches(trimString(obj["sportName"]), input.SportType) {
+			return
+		}
+		if !textMatches(trimString(obj["campusName"]), input.CampusName) {
+			return
+		}
+		if !textMatches(trimString(obj["venueName"]), input.VenueName) {
+			return
+		}
+		venueID = trimString(obj["venueId"])
+		venueSiteID = trimString(obj["id"])
+	})
+
+	if venueID == "" || venueSiteID == "" {
+		return "", "", fmt.Errorf("venue not found for sport=%s campus=%s venue=%s", input.SportType, input.CampusName, input.VenueName)
+	}
+	return venueID, venueSiteID, nil
+}
+
+// checkSlotAvailable queries TYYS day info and confirms the specific start/end time slot
+// exists and is free. The TYYS API stores slot times as "YYYY-MM-DD HH:mm", so we
+// concatenate reservationDate + " " + time before comparing against startDate/endDate.
+func (s *ReservationService) checkSlotAvailable(ctx context.Context, venueID, venueSiteID string, input ReservationPreviewInput) error {
+	params := url.Values{}
+	params.Set("venueId", venueID)
+	params.Set("venueSiteId", venueSiteID)
+	params.Set("siteId", venueSiteID) // TYYS day-info API accepts both siteId and venueSiteId; send both for compatibility
+	params.Set("date", input.ReservationDate)
+	params.Set("reservationDate", input.ReservationDate)
+	params.Set("searchDate", input.ReservationDate)
+
+	dayResp, err := s.tyys.ReservationDayInfo(ctx, params)
+	if err != nil {
+		return fmt.Errorf("get day info: %w", err)
+	}
+
+	// TYYS slot timestamps are formatted as "YYYY-MM-DD HH:mm".
+	wantStart := input.ReservationDate + " " + input.StartTime
+	wantEnd := input.ReservationDate + " " + input.EndTime
+	found := false
+	available := false
+	walkSlots(dayResp.Data, func(slot map[string]any) {
+		// A venue has multiple courts; the same time window appears once per court.
+		// Stop early once we find an available court — we don't need all of them.
+		if available {
+			return
+		}
+		if trimString(slot["startDate"]) == wantStart && trimString(slot["endDate"]) == wantEnd {
+			found = true
+			if isSlotAvailable(slot) {
+				available = true
+			}
+		}
+	})
+
+	if !found {
+		return fmt.Errorf("slot not found for %s %s-%s", input.ReservationDate, input.StartTime, input.EndTime)
+	}
+	if !available {
+		return fmt.Errorf("slot %s %s-%s is not available", input.ReservationDate, input.StartTime, input.EndTime)
+	}
+	return nil
+}
+
+// Submit validates the reservation request, writes a RoomReservation record, and
+// determines its initial status based on the TYYS opening-time rule:
+//   - Before the window: status="scheduled", ReserveOpenAt records when to trigger
+//   - After the window:  status="submitting", ready for the scheduler to pick up
+//
+// The actual TYYS call (which requires captcha solving) is NOT made here;
+// it is delegated to POST /internal/tasks/reservation-trigger so the HTTP
+// response stays fast and captcha complexity lives in the scheduler.
 func (s *ReservationService) Submit(ctx context.Context, input ReservationPreviewInput) (*models.RoomReservation, error) {
-	return nil, fmt.Errorf("reservation service Submit not implemented")
+	// --- 1. Validate room state (same gates as Preview) ---
+	room, err := s.roomRepo.GetByID(ctx, input.RoomID)
+	if err != nil {
+		return nil, fmt.Errorf("room not found: %w", err)
+	}
+	if !room.NeedReservation {
+		return nil, fmt.Errorf("room does not require reservation")
+	}
+	if room.Status == "cancelled" || room.Status == "finished" {
+		return nil, fmt.Errorf("room is not active (status=%s)", room.Status)
+	}
+	if sportRequiresBuddyCode(input.SportType) && (input.BuddyCode == nil || strings.TrimSpace(*input.BuddyCode) == "") {
+		return nil, fmt.Errorf("sport %s requires a buddy code", input.SportType)
+	}
+
+	// --- 2. Idempotency: reject if an active reservation already exists ---
+	existing, err := s.reservationRepo.GetLatestByRoomID(ctx, input.RoomID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("check existing reservation: %w", err)
+	}
+	if existing != nil {
+		switch existing.ReservationStatus {
+		case "scheduled", "submitting", "success":
+			return nil, fmt.Errorf("room already has an active reservation (status=%s)", existing.ReservationStatus)
+		}
+	}
+
+	// --- 3. Verify venue and slot availability on TYYS ---
+	venueID, venueSiteID, err := s.resolveVenueIDs(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.checkSlotAvailable(ctx, venueID, venueSiteID, input); err != nil {
+		return nil, err
+	}
+
+	// --- 4. Apply TYYS opening-time rule ---
+	// TYYS only accepts reservations starting at 09:00 CST exactly 2 days before
+	// the reservation date. Before that moment we create a "scheduled" plan;
+	// the scheduler flips it to "submitting" once the window opens.
+	openAt, err := tyysOpenTime(input.ReservationDate)
+	if err != nil {
+		return nil, fmt.Errorf("calculate tyys open time: %w", err)
+	}
+
+	status := "scheduled"
+	if !time.Now().Before(openAt) {
+		// Window is already open — mark for immediate scheduler pickup.
+		status = "submitting"
+	}
+
+	// --- 5. Persist the reservation record ---
+	venueIDUint, _ := strconv.ParseUint(venueID, 10, 64)
+	venueSiteIDUint, _ := strconv.ParseUint(venueSiteID, 10, 64)
+	venueIDResult := uint(venueIDUint)
+	venueSiteIDResult := uint(venueSiteIDUint)
+
+	buddyCode := ""
+	if input.BuddyCode != nil {
+		buddyCode = *input.BuddyCode
+	}
+	spaceName := ""
+	if input.SpaceName != nil {
+		spaceName = *input.SpaceName
+	}
+
+	reservation := &models.RoomReservation{
+		RoomID:            input.RoomID,
+		Provider:          "tyys",
+		SportType:         input.SportType,
+		CampusName:        input.CampusName,
+		VenueName:         input.VenueName,
+		ReservationDate:   input.ReservationDate,
+		StartTime:         input.StartTime,
+		EndTime:           input.EndTime,
+		VenueID:           &venueIDResult,
+		VenueSiteID:       &venueSiteIDResult,
+		SpaceID:           input.SpaceID,
+		SpaceName:         spaceName,
+		BuddyCode:         buddyCode,
+		ReservationStatus: status,
+		ScheduleStatus:    "waiting",
+		ReserveOpenAt:     &openAt,
+	}
+	if err := s.reservationRepo.Create(ctx, reservation); err != nil {
+		return nil, fmt.Errorf("create reservation: %w", err)
+	}
+
+	// --- 6. Mirror status onto the room so the room card reflects it ---
+	room.ReservationStatus = status
+	if updateErr := s.roomRepo.Update(ctx, room); updateErr != nil {
+		// Non-fatal: reservation is already saved; log and continue.
+		_ = s.logAttempt(ctx, input.RoomID, reservation.ID, "update_room_status", false, updateErr.Error())
+	}
+
+	// --- 7. Record a successful plan-creation attempt ---
+	_ = s.logAttempt(ctx, input.RoomID, reservation.ID, "submit_plan", true,
+		fmt.Sprintf("reservation created with status=%s openAt=%s", status, openAt.Format(time.RFC3339)))
+
+	return reservation, nil
+}
+
+// tyysOpenTime returns the moment at which TYYS accepts bookings for a given
+// reservation date: 09:00 CST exactly 2 calendar days before that date.
+func tyysOpenTime(reservationDate string) (time.Time, error) {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.Time{}, fmt.Errorf("load Asia/Shanghai location: %w", err)
+	}
+	date, err := time.ParseInLocation("2006-01-02", reservationDate, loc)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse reservation date %q: %w", reservationDate, err)
+	}
+	open := date.AddDate(0, 0, -2)
+	return time.Date(open.Year(), open.Month(), open.Day(), 9, 0, 0, 0, loc), nil
+}
+
+// logAttempt writes a ReservationAttemptLog record; errors are ignored by callers
+// because logging failures must not abort the main flow.
+func (s *ReservationService) logAttempt(ctx context.Context, roomID, reservationID uint, stage string, success bool, message string) error {
+	entry := &models.ReservationAttemptLog{
+		RoomID:        &roomID,
+		ReservationID: &reservationID,
+		Stage:         stage,
+		Success:       success,
+		Message:       message,
+	}
+	return s.reservationRepo.CreateAttemptLog(ctx, entry)
 }
