@@ -1,3 +1,5 @@
+// Deprecated: This function is a redundant implementation.
+// Use tyys_reservation_v2 instead for better maintenance and performance.
 package zjulogin
 
 import (
