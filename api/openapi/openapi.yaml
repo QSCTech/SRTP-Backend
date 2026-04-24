@@ -483,13 +483,21 @@ paths:
     get:
       operationId: listReservationVenues
       summary: List supported reservation venues
+      description: |
+        返回所有可预约的场馆列表，支持按球类(sport_type)和校区(campus)筛选。
+        可选值来自 TYYS 体育馆系统：
+        - **sport_type** 可选值：羽毛球、健身、游泳、网球
+        - **campus** 可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
+        示例：sport_type=羽毛球&campus=紫金港 返回紫金港校区所有羽毛球场馆
       parameters:
         - in: query
           name: sport_type
+          description: 球类类型，如羽毛球、健身、游泳、网球
           schema:
             type: string
         - in: query
           name: campus
+          description: 校区名称，如紫金港校区、华家池校区、玉泉校区、西溪校区
           schema:
             type: string
       responses:
@@ -502,29 +510,43 @@ paths:
   /reservations/slots:
     get:
       operationId: listReservationSlots
-      summary: List supported reservation slots
+      summary: List available time slots for a venue
+      description: |
+        查询指定场馆在某日期的可预约时间段。
+        - **sport_type** 可选值：羽毛球、健身、游泳、网球
+        - **campus_name** 可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
+        - **venue_name** 可选值（按校区和球类不同）：如风雨操场、体育馆、羽毛球馆、游泳馆等
+        - **reservation_date** 格式：YYYY-MM-DD，如 2026-04-21
       parameters:
         - in: query
           name: sport_type
+          description: 球类类型。可选值：羽毛球、健身、游泳、网球
           required: true
           schema:
             type: string
+            example: 羽毛球
         - in: query
           name: campus_name
+          description: 校区名称。可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
           required: true
           schema:
             type: string
+            example: 紫金港校区
         - in: query
           name: venue_name
+          description: 场馆名称
           required: true
           schema:
             type: string
+            example: 风雨操场
         - in: query
           name: reservation_date
+          description: 预约日期，格式 YYYY-MM-DD
           required: true
           schema:
             type: string
             format: date
+            example: "2026-04-21"
       responses:
         '200':
           description: Reservation slot list
@@ -542,6 +564,23 @@ paths:
     post:
       operationId: previewRoomReservation
       summary: Preview reservation for a room
+      description: |
+        预约预览接口，在正式提交前校验预约参数的合法性并返回确认信息。
+        **不写库、不占用场地**，仅做以下校验：
+        - 房间存在且状态为 recruiting / full（非 cancelled / finished）
+        - 房间设置了 need_reservation=true
+        - 球类前置条件：羽毛球、网球必须提供 buddy_code；最低人数不足时直接拒绝
+        - 调用 TYYS 确认指定日期、时间段存在且至少有一个球场可约
+
+        返回的 venue_id / venue_site_id 为 TYYS 已解析的场馆 ID，提交时可直接复用，
+        避免 submit 再做一次场馆查询。
+
+        **错误场景**：
+        - `400 room does not require reservation` — 房间无需预约
+        - `400 sport X requires a buddy code` — 未提供同伴码
+        - `400 sport X requires at least N members` — 房间人数不足
+        - `400 venue not found` — TYYS 找不到对应场馆
+        - `400 slot not found / not available` — 该时段不存在或已被占用
       parameters:
         - $ref: '#/components/parameters/RoomIdPath'
       requestBody:
@@ -552,13 +591,13 @@ paths:
               $ref: '#/components/schemas/ReservationSubmitRequest'
       responses:
         '200':
-          description: Reservation preview
+          description: 预约参数合法，返回预览信息（包含解析后的 venue_id / venue_site_id）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReservationPreviewResponse'
         '400':
-          description: Invalid request
+          description: 参数不合法或校验失败
           content:
             application/json:
               schema:
@@ -567,6 +606,24 @@ paths:
     post:
       operationId: submitRoomReservation
       summary: Submit reservation for a room
+      description: |
+        正式提交预约计划，写库并根据 TYYS 开放时间规则决定初始状态。
+        **校验逻辑与 preview 相同**（房间状态、同伴码、最低人数、TYYS 时段可用性）。
+
+        **TYYS 开放时间规则**：
+        - TYYS 仅在预约日期前 2 天的 09:00 CST 开放预约窗口
+        - 当前时间 < 开放时间 → `reservation_status: scheduled`，记录 reserve_open_at
+        - 当前时间 ≥ 开放时间 → `reservation_status: submitting`，等待调度器立即处理
+
+        **真正调用 TYYS 的时机**由后端调度器（POST /internal/tasks/reservation-trigger）负责，
+        不在本接口内同步完成，因此本接口不受验证码的影响，响应较快。
+
+        **幂等性**：同一房间已有 scheduled / submitting / success 状态时拒绝重复提交；
+        failed 状态允许重新提交。
+
+        **错误场景**：
+        - `400 room already has an active reservation` — 已有进行中的预约计划
+        - 其余同 preview 接口
       parameters:
         - $ref: '#/components/parameters/RoomIdPath'
       requestBody:
@@ -577,13 +634,13 @@ paths:
               $ref: '#/components/schemas/ReservationSubmitRequest'
       responses:
         '200':
-          description: Reservation submit result
+          description: 预约计划创建成功，返回落库后的预约记录（含 reservation_status）
           content:
             application/json:
               schema:
                 $ref: '#/components/schemas/ReservationRecordResponse'
         '400':
-          description: Invalid request
+          description: 参数不合法、校验失败或重复提交
           content:
             application/json:
               schema:
@@ -1061,13 +1118,17 @@ components:
     ReservationVenue:
       type: object
       required: [sport_type, campus_name, venue_name]
+      description: 场馆信息
       properties:
         sport_type:
           type: string
+          description: 球类类型。可选值：羽毛球、健身、游泳、网球
         campus_name:
           type: string
+          description: 校区名称。可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
         venue_name:
           type: string
+          description: 场馆名称
     ReservationVenueListResponse:
       type: object
       required: [items]
@@ -1079,17 +1140,26 @@ components:
     ReservationSlot:
       type: object
       required: [slot_key, start_time, end_time, available]
+      description: 预约时间段
       properties:
         slot_key:
           type: string
+          description: 时间段唯一标识，用于提交预约
+          example: "123456"
         start_time:
           type: string
+          description: 开始时间，格式 HH:mm 或 YYYY-MM-DD HH:mm
+          example: "2026-04-21 08:30"
         end_time:
           type: string
+          description: 结束时间，格式 HH:mm 或 YYYY-MM-DD HH:mm
+          example: "2026-04-21 09:30"
         available:
           type: boolean
+          description: 是否可预约
         space_name:
           type: string
+          description: 场地名称（如羽毛球场1号场）
     ReservationSlotListResponse:
       type: object
       required: [items]
