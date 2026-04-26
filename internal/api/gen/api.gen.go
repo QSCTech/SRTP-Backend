@@ -91,57 +91,79 @@ type ReadyResponse struct {
 
 // ReservationPreviewResponse defines model for ReservationPreviewResponse.
 type ReservationPreviewResponse struct {
-	BuddyCode         *string            `json:"buddy_code,omitempty"`
-	CampusName        string             `json:"campus_name"`
-	EndTime           string             `json:"end_time"`
-	Provider          string             `json:"provider"`
-	ReservationDate   openapi_types.Date `json:"reservation_date"`
-	ReservationStatus string             `json:"reservation_status"`
-	RoomId            int64              `json:"room_id"`
-	SpaceId           *int64             `json:"space_id,omitempty"`
-	SpaceName         *string            `json:"space_name,omitempty"`
-	SportType         string             `json:"sport_type"`
-	StartTime         string             `json:"start_time"`
-	VenueId           *int64             `json:"venue_id,omitempty"`
-	VenueName         string             `json:"venue_name"`
-	VenueSiteId       *int64             `json:"venue_site_id,omitempty"`
+	BuddyCode         *string             `json:"buddy_code,omitempty"`
+	CampusName        string              `json:"campus_name"`
+	EndTime           string              `json:"end_time"`
+	Provider          string              `json:"provider"`
+	ReservationDate   openapi_types.Date  `json:"reservation_date"`
+	ReservationStatus string              `json:"reservation_status"`
+	RoomId            int64               `json:"room_id"`
+	SpaceId           *int64              `json:"space_id,omitempty"`
+	SpaceName         *string             `json:"space_name,omitempty"`
+	SportType         string              `json:"sport_type"`
+	StartTime         string              `json:"start_time"`
+	TimeId            *int64              `json:"time_id,omitempty"`
+	Token             *string             `json:"token,omitempty"`
+	VenueName         string              `json:"venue_name"`
+	VenueSiteId       *int64              `json:"venue_site_id,omitempty"`
+	WeekStartDate     *openapi_types.Date `json:"week_start_date,omitempty"`
 }
 
 // ReservationRecordResponse defines model for ReservationRecordResponse.
 type ReservationRecordResponse struct {
-	BuddyCode         *string            `json:"buddy_code,omitempty"`
-	CampusName        string             `json:"campus_name"`
-	CreatedAt         time.Time          `json:"created_at"`
-	EndTime           string             `json:"end_time"`
-	ExternalOrderId   *string            `json:"external_order_id,omitempty"`
-	ExternalTradeNo   *string            `json:"external_trade_no,omitempty"`
-	Id                int64              `json:"id"`
-	Provider          string             `json:"provider"`
-	ReservationDate   openapi_types.Date `json:"reservation_date"`
-	ReservationStatus string             `json:"reservation_status"`
-	RoomId            int64              `json:"room_id"`
-	SpaceId           *int64             `json:"space_id,omitempty"`
-	SpaceName         *string            `json:"space_name,omitempty"`
-	SportType         string             `json:"sport_type"`
-	StartTime         string             `json:"start_time"`
-	UpdatedAt         time.Time          `json:"updated_at"`
-	VenueId           *int64             `json:"venue_id,omitempty"`
-	VenueName         string             `json:"venue_name"`
-	VenueSiteId       *int64             `json:"venue_site_id,omitempty"`
+	BuddyCode         *string             `json:"buddy_code,omitempty"`
+	CampusName        string              `json:"campus_name"`
+	CreatedAt         time.Time           `json:"created_at"`
+	EndTime           string              `json:"end_time"`
+	ExternalOrderId   *string             `json:"external_order_id,omitempty"`
+	ExternalTradeNo   *string             `json:"external_trade_no,omitempty"`
+	Id                int64               `json:"id"`
+	Provider          string              `json:"provider"`
+	ReservationDate   openapi_types.Date  `json:"reservation_date"`
+	ReservationStatus string              `json:"reservation_status"`
+	RoomId            int64               `json:"room_id"`
+	SpaceId           *int64              `json:"space_id,omitempty"`
+	SpaceName         *string             `json:"space_name,omitempty"`
+	SportType         string              `json:"sport_type"`
+	StartTime         string              `json:"start_time"`
+	TimeId            *int64              `json:"time_id,omitempty"`
+	Token             *string             `json:"token,omitempty"`
+	UpdatedAt         time.Time           `json:"updated_at"`
+	VenueName         string              `json:"venue_name"`
+	VenueSiteId       *int64              `json:"venue_site_id,omitempty"`
+	WeekStartDate     *openapi_types.Date `json:"week_start_date,omitempty"`
 }
 
-// ReservationSlot defines model for ReservationSlot.
-type ReservationSlot struct {
-	Available bool    `json:"available"`
-	EndTime   string  `json:"end_time"`
-	SlotKey   string  `json:"slot_key"`
-	SpaceName *string `json:"space_name,omitempty"`
-	StartTime string  `json:"start_time"`
+// ReservationSlotGroup 按时间段聚合的预约时段，包含该时段内所有可选场地
+type ReservationSlotGroup struct {
+	DisplayLabel    string                 `json:"display_label"`
+	EndTime         string                 `json:"end_time"`
+	ReservationDate openapi_types.Date     `json:"reservation_date"`
+	Spaces          []ReservationSpaceSlot `json:"spaces"`
+	StartTime       string                 `json:"start_time"`
+	TimeId          int64                  `json:"time_id"`
 }
 
 // ReservationSlotListResponse defines model for ReservationSlotListResponse.
 type ReservationSlotListResponse struct {
-	Items []ReservationSlot `json:"items"`
+	Items []ReservationSlotGroup `json:"items"`
+}
+
+// ReservationSpaceSlot 某时段内某个具体场地的预约信息
+type ReservationSpaceSlot struct {
+	Available bool `json:"available"`
+
+	// SlotKey 场地+时段唯一标识，格式 spaceId|timeId
+	SlotKey   string  `json:"slot_key"`
+	SpaceId   int64   `json:"space_id"`
+	SpaceName *string `json:"space_name,omitempty"`
+
+	// Token TYYS 预约令牌，提交时直接传入
+	Token       string `json:"token"`
+	VenueSiteId int64  `json:"venue_site_id"`
+
+	// WeekStartDate TYYS 周开始日期，缺省则使用 reservation_date
+	WeekStartDate *openapi_types.Date `json:"week_start_date,omitempty"`
 }
 
 // ReservationSubmitRequest defines model for ReservationSubmitRequest.
@@ -154,16 +176,29 @@ type ReservationSubmitRequest struct {
 	SpaceName       *string            `json:"space_name,omitempty"`
 	SportType       string             `json:"sport_type"`
 	StartTime       string             `json:"start_time"`
-	VenueId         *int64             `json:"venue_id,omitempty"`
-	VenueName       string             `json:"venue_name"`
-	VenueSiteId     *int64             `json:"venue_site_id,omitempty"`
+
+	// TimeId TYYS 时段 ID，来自 slots 接口
+	TimeId *int64 `json:"time_id,omitempty"`
+
+	// Token TYYS 预约令牌，来自 slots 接口
+	Token       *string `json:"token,omitempty"`
+	VenueName   string  `json:"venue_name"`
+	VenueSiteId *int64  `json:"venue_site_id,omitempty"`
+
+	// WeekStartDate TYYS 周开始日期，来自 slots 接口
+	WeekStartDate *openapi_types.Date `json:"week_start_date,omitempty"`
 }
 
-// ReservationVenue defines model for ReservationVenue.
+// ReservationVenue 场馆信息
 type ReservationVenue struct {
+	// CampusName 校区名称。可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
 	CampusName string `json:"campus_name"`
-	SportType  string `json:"sport_type"`
-	VenueName  string `json:"venue_name"`
+
+	// SportType 球类类型。可选值：羽毛球、健身、游泳、网球
+	SportType string `json:"sport_type"`
+
+	// VenueName 场馆名称
+	VenueName string `json:"venue_name"`
 }
 
 // ReservationVenueListResponse defines model for ReservationVenueListResponse.
@@ -247,7 +282,7 @@ type RoomOwner struct {
 	Nickname  string `json:"nickname"`
 }
 
-// UpdateProfileRequest defines model for UpdateProfileRequest.
+// UpdateProfileRequest Update current user profile. Nickname and bio must pass synchronous blocked-word validation before persistence.
 type UpdateProfileRequest struct {
 	AvatarUrl *string `json:"avatar_url,omitempty"`
 	Bio       *string `json:"bio,omitempty"`
@@ -272,13 +307,15 @@ type UpdateRoomRequest struct {
 
 // User defines model for User.
 type User struct {
-	AuthUid       string    `json:"auth_uid"`
-	AvatarUrl     string    `json:"avatar_url"`
-	Bio           string    `json:"bio"`
-	CreatedAt     time.Time `json:"created_at"`
-	Gender        string    `json:"gender"`
-	Id            int64     `json:"id"`
-	Nickname      string    `json:"nickname"`
+	AuthUid   string    `json:"auth_uid"`
+	AvatarUrl string    `json:"avatar_url"`
+	Bio       string    `json:"bio"`
+	CreatedAt time.Time `json:"created_at"`
+	Gender    string    `json:"gender"`
+	Id        int64     `json:"id"`
+	Nickname  string    `json:"nickname"`
+
+	// ProfileStatus Current profile state. This version uses synchronous blocked-word validation instead of manual review workflow.
 	ProfileStatus string    `json:"profile_status"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -328,16 +365,26 @@ type ListMyJoinedRoomsParams struct {
 
 // ListReservationSlotsParams defines parameters for ListReservationSlots.
 type ListReservationSlotsParams struct {
-	SportType       string             `form:"sport_type" json:"sport_type"`
-	CampusName      string             `form:"campus_name" json:"campus_name"`
-	VenueName       string             `form:"venue_name" json:"venue_name"`
+	// SportType 球类类型。可选值：羽毛球、健身、游泳、网球
+	SportType string `form:"sport_type" json:"sport_type"`
+
+	// CampusName 校区名称。可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
+	CampusName string `form:"campus_name" json:"campus_name"`
+
+	// VenueName 场馆名称
+	VenueName string `form:"venue_name" json:"venue_name"`
+
+	// ReservationDate 预约日期，格式 YYYY-MM-DD
 	ReservationDate openapi_types.Date `form:"reservation_date" json:"reservation_date"`
 }
 
 // ListReservationVenuesParams defines parameters for ListReservationVenues.
 type ListReservationVenuesParams struct {
+	// SportType 球类类型，如羽毛球、健身、游泳、网球
 	SportType *string `form:"sport_type,omitempty" json:"sport_type,omitempty"`
-	Campus    *string `form:"campus,omitempty" json:"campus,omitempty"`
+
+	// Campus 校区名称，如紫金港校区、华家池校区、玉泉校区、西溪校区
+	Campus *string `form:"campus,omitempty" json:"campus,omitempty"`
 }
 
 // ListRoomsParams defines parameters for ListRooms.
@@ -403,7 +450,7 @@ type ServerInterface interface {
 	// Get current user profile
 	// (GET /me)
 	GetCurrentUser(c *gin.Context)
-	// Update current user profile
+	// Update current user profile with synchronous blocked-word validation
 	// (PUT /me/profile)
 	UpdateCurrentUserProfile(c *gin.Context)
 	// List rooms created by current user
@@ -418,7 +465,7 @@ type ServerInterface interface {
 	// Service readiness check
 	// (GET /readyz)
 	GetReadyz(c *gin.Context)
-	// List supported reservation slots
+	// List available time slots for a venue
 	// (GET /reservations/slots)
 	ListReservationSlots(c *gin.Context, params ListReservationSlotsParams)
 	// List supported reservation venues

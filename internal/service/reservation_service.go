@@ -3,14 +3,17 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/QSCTech/SRTP-Backend/internal/repository"
 	"github.com/QSCTech/SRTP-Backend/internal/zjulogin"
 	"github.com/QSCTech/SRTP-Backend/models"
+	"gorm.io/gorm"
 )
 
 type ReservationVenueItem struct {
@@ -19,12 +22,27 @@ type ReservationVenueItem struct {
 	VenueName  string
 }
 
-type ReservationSlotItem struct {
-	SlotKey   string
-	StartTime string
-	EndTime   string
-	Available bool
-	SpaceName *string
+// ReservationSpaceSlotItem is a single bookable court within a time group.
+// All fields needed to call ReserveV2 are embedded so the frontend only needs
+// to pass them back verbatim — no re-query of dayInfo on submit.
+type ReservationSpaceSlotItem struct {
+	SlotKey       string // "{spaceId}|{timeId}"
+	VenueSiteID   int64
+	SpaceID       int64
+	SpaceName     string
+	Available     bool
+	Token         string // top-level token from dayInfo response
+	WeekStartDate string // top-level weekStartDate from dayInfo response
+}
+
+// ReservationSlotGroupItem groups all courts that share the same time window.
+type ReservationSlotGroupItem struct {
+	ReservationDate string
+	TimeID          int64
+	StartTime       string // HH:mm
+	EndTime         string // HH:mm
+	DisplayLabel    string // "HH:mm-HH:mm"
+	Spaces          []ReservationSpaceSlotItem
 }
 
 type ReservationPreviewInput struct {
@@ -36,10 +54,13 @@ type ReservationPreviewInput struct {
 	StartTime       string
 	EndTime         string
 	BuddyCode       *string
-	VenueID         *uint
 	VenueSiteID     *uint
 	SpaceID         *uint
 	SpaceName       *string
+	// Slot context from ListSlots — when all four are set, TYYS re-query is skipped.
+	TimeID        *string
+	Token         *string
+	WeekStartDate *string
 }
 
 type ReservationPreviewOutput struct {
@@ -53,10 +74,12 @@ type ReservationPreviewOutput struct {
 	StartTime         string
 	EndTime           string
 	BuddyCode         *string
-	VenueID           *uint
 	VenueSiteID       *uint
 	SpaceID           *uint
 	SpaceName         *string
+	TimeID            *string
+	Token             *string
+	WeekStartDate     *string
 }
 
 type ReservationService struct {
@@ -99,7 +122,414 @@ func (s *ReservationService) ListVenues(ctx context.Context, sportType, campus *
 	return result
 }
 
-// trimString converts an any value to string, returning empty string if not a string.
+func (s *ReservationService) ListSlots(ctx context.Context, sportType, campusName, venueName, reservationDate string) ([]ReservationSlotGroupItem, error) {
+	// Step 1: resolve venueId and venueSiteId from TYYS venue catalogue.
+	venueResp, err := s.tyys.VenueInfo(ctx, 0)
+	if err != nil {
+		return nil, fmt.Errorf("get venue info: %w", err)
+	}
+
+	var venueID, venueSiteID string
+	walkVenues(venueResp.Data, func(obj map[string]any) {
+		if venueID != "" {
+			return
+		}
+		if !textMatches(trimString(obj["sportName"]), sportType) {
+			return
+		}
+		if !textMatches(trimString(obj["campusName"]), campusName) {
+			return
+		}
+		if !textMatches(trimString(obj["venueName"]), venueName) {
+			return
+		}
+		venueID = trimString(obj["venueId"])
+		venueSiteID = trimString(obj["id"])
+	})
+
+	if venueID == "" || venueSiteID == "" {
+		return nil, fmt.Errorf("venue not found for sport=%s campus=%s venue=%s", sportType, campusName, venueName)
+	}
+
+	venueSiteIDInt, _ := strconv.ParseInt(venueSiteID, 10, 64)
+
+	// Step 2: fetch day info for the requested date.
+	params := url.Values{}
+	params.Set("venueId", venueID)
+	params.Set("venueSiteId", venueSiteID)
+	params.Set("siteId", venueSiteID)
+	params.Set("date", reservationDate)
+	params.Set("reservationDate", reservationDate)
+	params.Set("searchDate", reservationDate)
+
+	dayResp, err := s.tyys.ReservationDayInfo(ctx, params)
+	if err != nil {
+		return nil, fmt.Errorf("get day info: %w", err)
+	}
+
+	// token and weekStartDate are top-level fields in the dayInfo response,
+	// shared by all slots. Extract once and embed into every space entry.
+	token, weekStartDate := extractDayInfoMeta(dayResp.Data)
+	if weekStartDate == "" {
+		weekStartDate = reservationDate
+	}
+
+	// Step 3: walk slots and aggregate by timeId.
+	// TYYS stores slots as: space{ id, spaceName, "<timeId>": { startDate, endDate, … } }
+	// walkSlotsWithContext passes both the slot child and its parent space object.
+	var groups []ReservationSlotGroupItem
+	groupIdx := map[string]int{} // timeID string → index in groups
+
+	walkSlotsWithContext(dayResp.Data, func(timeID string, slot, space map[string]any) {
+		startFull := trimString(slot["startDate"]) // "YYYY-MM-DD HH:mm"
+		endFull := trimString(slot["endDate"])
+		startHHmm := extractHHmm(startFull)
+		endHHmm := extractHHmm(endFull)
+
+		timeIDInt, _ := strconv.ParseInt(timeID, 10, 64)
+
+		spaceIDStr := trimString(space["id"])
+		spaceIDInt, _ := strconv.ParseInt(spaceIDStr, 10, 64)
+
+		sp := ReservationSpaceSlotItem{
+			SlotKey:       spaceIDStr + "|" + timeID,
+			VenueSiteID:   venueSiteIDInt,
+			SpaceID:       spaceIDInt,
+			SpaceName:     trimString(space["spaceName"]),
+			Available:     isSlotAvailable(slot),
+			Token:         token,
+			WeekStartDate: weekStartDate,
+		}
+
+		if idx, exists := groupIdx[timeID]; exists {
+			groups[idx].Spaces = append(groups[idx].Spaces, sp)
+		} else {
+			groupIdx[timeID] = len(groups)
+			groups = append(groups, ReservationSlotGroupItem{
+				ReservationDate: reservationDate,
+				TimeID:          timeIDInt,
+				StartTime:       startHHmm,
+				EndTime:         endHHmm,
+				DisplayLabel:    startHHmm + "-" + endHHmm,
+				Spaces:          []ReservationSpaceSlotItem{sp},
+			})
+		}
+	})
+
+	return groups, nil
+}
+
+// Preview validates a proposed reservation against room state and TYYS availability
+// without writing anything to the database.
+func (s *ReservationService) Preview(ctx context.Context, input ReservationPreviewInput) (*ReservationPreviewOutput, error) {
+	room, err := s.roomRepo.GetByID(ctx, input.RoomID)
+	if err != nil {
+		return nil, fmt.Errorf("room not found: %w", err)
+	}
+	if !room.NeedReservation {
+		return nil, fmt.Errorf("room does not require reservation")
+	}
+	if room.Status == "cancelled" || room.Status == "finished" {
+		return nil, fmt.Errorf("room is not active (status=%s)", room.Status)
+	}
+
+	sportCfg := getSportConfig(input.SportType)
+	if sportCfg.RequiresBuddyCode && (input.BuddyCode == nil || strings.TrimSpace(*input.BuddyCode) == "") {
+		return nil, fmt.Errorf("sport %s requires a buddy code", input.SportType)
+	}
+
+	memberCount, err := s.roomRepo.CountActiveMembers(ctx, input.RoomID)
+	if err != nil {
+		return nil, fmt.Errorf("count active members: %w", err)
+	}
+	if int(memberCount) < sportCfg.MinMemberCount {
+		return nil, fmt.Errorf("sport %s requires at least %d members before reservation (current: %d)",
+			input.SportType, sportCfg.MinMemberCount, memberCount)
+	}
+
+	venueSiteID, err := s.resolveAndVerifySlot(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	venueSiteIDUint := uint(venueSiteID)
+	return &ReservationPreviewOutput{
+		RoomID:            input.RoomID,
+		Provider:          "tyys",
+		ReservationStatus: "pending",
+		SportType:         input.SportType,
+		CampusName:        input.CampusName,
+		VenueName:         input.VenueName,
+		ReservationDate:   input.ReservationDate,
+		StartTime:         input.StartTime,
+		EndTime:           input.EndTime,
+		BuddyCode:         input.BuddyCode,
+		VenueSiteID:       &venueSiteIDUint,
+		SpaceID:           input.SpaceID,
+		SpaceName:         input.SpaceName,
+		TimeID:            input.TimeID,
+		Token:             input.Token,
+		WeekStartDate:     input.WeekStartDate,
+	}, nil
+}
+
+// Submit validates the reservation, writes a RoomReservation record, and determines
+// its initial status based on the TYYS opening-time rule.
+func (s *ReservationService) Submit(ctx context.Context, input ReservationPreviewInput) (*models.RoomReservation, error) {
+	// --- 1. Validate room state ---
+	room, err := s.roomRepo.GetByID(ctx, input.RoomID)
+	if err != nil {
+		return nil, fmt.Errorf("room not found: %w", err)
+	}
+	if !room.NeedReservation {
+		return nil, fmt.Errorf("room does not require reservation")
+	}
+	if room.Status == "cancelled" || room.Status == "finished" {
+		return nil, fmt.Errorf("room is not active (status=%s)", room.Status)
+	}
+
+	sportCfg := getSportConfig(input.SportType)
+	if sportCfg.RequiresBuddyCode && (input.BuddyCode == nil || strings.TrimSpace(*input.BuddyCode) == "") {
+		return nil, fmt.Errorf("sport %s requires a buddy code", input.SportType)
+	}
+
+	memberCount, err := s.roomRepo.CountActiveMembers(ctx, input.RoomID)
+	if err != nil {
+		return nil, fmt.Errorf("count active members: %w", err)
+	}
+	if int(memberCount) < sportCfg.MinMemberCount {
+		return nil, fmt.Errorf("sport %s requires at least %d members before reservation (current: %d)",
+			input.SportType, sportCfg.MinMemberCount, memberCount)
+	}
+
+	// --- 2. Idempotency check ---
+	existing, err := s.reservationRepo.GetLatestByRoomID(ctx, input.RoomID)
+	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, fmt.Errorf("check existing reservation: %w", err)
+	}
+	if existing != nil {
+		switch existing.ReservationStatus {
+		case "scheduled", "submitting", "success":
+			return nil, fmt.Errorf("room already has an active reservation (status=%s)", existing.ReservationStatus)
+		}
+	}
+
+	// --- 3. Verify venue / slot availability ---
+	venueSiteID, err := s.resolveAndVerifySlot(ctx, input)
+	if err != nil {
+		return nil, err
+	}
+
+	// --- 4. TYYS opening-time rule ---
+	openAt, err := tyysOpenTime(input.ReservationDate)
+	if err != nil {
+		return nil, fmt.Errorf("calculate tyys open time: %w", err)
+	}
+	status := "scheduled"
+	if !time.Now().Before(openAt) {
+		status = "submitting"
+	}
+
+	// --- 5. Persist ---
+	venueSiteIDUint := uint(venueSiteID)
+	buddyCode := ""
+	if input.BuddyCode != nil {
+		buddyCode = *input.BuddyCode
+	}
+	spaceName := ""
+	if input.SpaceName != nil {
+		spaceName = *input.SpaceName
+	}
+	timeID := ""
+	if input.TimeID != nil {
+		timeID = *input.TimeID
+	}
+	token := ""
+	if input.Token != nil {
+		token = *input.Token
+	}
+	weekStartDate := ""
+	if input.WeekStartDate != nil {
+		weekStartDate = *input.WeekStartDate
+	}
+
+	reservation := &models.RoomReservation{
+		RoomID:            input.RoomID,
+		Provider:          "tyys",
+		SportType:         input.SportType,
+		CampusName:        input.CampusName,
+		VenueName:         input.VenueName,
+		ReservationDate:   input.ReservationDate,
+		StartTime:         input.StartTime,
+		EndTime:           input.EndTime,
+		VenueSiteID:       &venueSiteIDUint,
+		SpaceID:           input.SpaceID,
+		SpaceName:         spaceName,
+		TimeID:            timeID,
+		Token:             token,
+		WeekStartDate:     weekStartDate,
+		BuddyCode:         buddyCode,
+		ReservationStatus: status,
+		ScheduleStatus:    "waiting",
+		ReserveOpenAt:     &openAt,
+	}
+	if err := s.reservationRepo.Create(ctx, reservation); err != nil {
+		return nil, fmt.Errorf("create reservation: %w", err)
+	}
+
+	// --- 6. Mirror status onto room ---
+	room.ReservationStatus = status
+	if updateErr := s.roomRepo.Update(ctx, room); updateErr != nil {
+		_ = s.logAttempt(ctx, input.RoomID, reservation.ID, "update_room_status", false, updateErr.Error())
+	}
+
+	_ = s.logAttempt(ctx, input.RoomID, reservation.ID, "submit_plan", true,
+		fmt.Sprintf("reservation created with status=%s openAt=%s", status, openAt.Format(time.RFC3339)))
+
+	return reservation, nil
+}
+
+// resolveAndVerifySlot returns the resolved venueSiteID (as int64) and verifies
+// slot availability. When the full slot context (VenueSiteID, SpaceID, TimeID, Token)
+// is already provided from ListSlots, TYYS re-query is skipped entirely.
+func (s *ReservationService) resolveAndVerifySlot(ctx context.Context, input ReservationPreviewInput) (int64, error) {
+	if slotContextComplete(input) {
+		return int64(*input.VenueSiteID), nil
+	}
+
+	// Fallback: look up venue and verify slot by start/end time.
+	venueID, venueSiteID, err := s.lookupVenueIDs(ctx, input)
+	if err != nil {
+		return 0, err
+	}
+	if err := s.checkSlotAvailable(ctx, venueID, venueSiteID, input); err != nil {
+		return 0, err
+	}
+	id, _ := strconv.ParseInt(venueSiteID, 10, 64)
+	return id, nil
+}
+
+// slotContextComplete returns true when the caller already has all fields
+// needed to call ReserveV2 without querying TYYS again.
+func slotContextComplete(input ReservationPreviewInput) bool {
+	return input.VenueSiteID != nil && input.SpaceID != nil &&
+		input.TimeID != nil && input.Token != nil
+}
+
+func (s *ReservationService) lookupVenueIDs(ctx context.Context, input ReservationPreviewInput) (venueID, venueSiteID string, err error) {
+	venueResp, err := s.tyys.VenueInfo(ctx, 0)
+	if err != nil {
+		return "", "", fmt.Errorf("get venue info: %w", err)
+	}
+	walkVenues(venueResp.Data, func(obj map[string]any) {
+		if venueID != "" {
+			return
+		}
+		if !textMatches(trimString(obj["sportName"]), input.SportType) {
+			return
+		}
+		if !textMatches(trimString(obj["campusName"]), input.CampusName) {
+			return
+		}
+		if !textMatches(trimString(obj["venueName"]), input.VenueName) {
+			return
+		}
+		venueID = trimString(obj["venueId"])
+		venueSiteID = trimString(obj["id"])
+	})
+	if venueID == "" || venueSiteID == "" {
+		return "", "", fmt.Errorf("venue not found for sport=%s campus=%s venue=%s",
+			input.SportType, input.CampusName, input.VenueName)
+	}
+	return venueID, venueSiteID, nil
+}
+
+// checkSlotAvailable queries TYYS day info and confirms the start/end time slot
+// exists and has at least one free court.
+func (s *ReservationService) checkSlotAvailable(ctx context.Context, venueID, venueSiteID string, input ReservationPreviewInput) error {
+	params := url.Values{}
+	params.Set("venueId", venueID)
+	params.Set("venueSiteId", venueSiteID)
+	params.Set("siteId", venueSiteID)
+	params.Set("date", input.ReservationDate)
+	params.Set("reservationDate", input.ReservationDate)
+	params.Set("searchDate", input.ReservationDate)
+
+	dayResp, err := s.tyys.ReservationDayInfo(ctx, params)
+	if err != nil {
+		return fmt.Errorf("get day info: %w", err)
+	}
+
+	wantStart := input.ReservationDate + " " + input.StartTime
+	wantEnd := input.ReservationDate + " " + input.EndTime
+	found, available := false, false
+
+	walkSlotsWithContext(dayResp.Data, func(_ string, slot, _ map[string]any) {
+		if available {
+			return
+		}
+		if trimString(slot["startDate"]) == wantStart && trimString(slot["endDate"]) == wantEnd {
+			found = true
+			if isSlotAvailable(slot) {
+				available = true
+			}
+		}
+	})
+
+	if !found {
+		return fmt.Errorf("slot not found for %s %s-%s", input.ReservationDate, input.StartTime, input.EndTime)
+	}
+	if !available {
+		return fmt.Errorf("slot %s %s-%s is not available", input.ReservationDate, input.StartTime, input.EndTime)
+	}
+	return nil
+}
+
+// tyysOpenTime returns 09:00 CST exactly 2 calendar days before the reservation date.
+func tyysOpenTime(reservationDate string) (time.Time, error) {
+	loc, err := time.LoadLocation("Asia/Shanghai")
+	if err != nil {
+		return time.Time{}, fmt.Errorf("load Asia/Shanghai location: %w", err)
+	}
+	date, err := time.ParseInLocation("2006-01-02", reservationDate, loc)
+	if err != nil {
+		return time.Time{}, fmt.Errorf("parse reservation date %q: %w", reservationDate, err)
+	}
+	open := date.AddDate(0, 0, -2)
+	return time.Date(open.Year(), open.Month(), open.Day(), 9, 0, 0, 0, loc), nil
+}
+
+func (s *ReservationService) logAttempt(ctx context.Context, roomID, reservationID uint, stage string, success bool, message string) error {
+	entry := &models.ReservationAttemptLog{
+		RoomID:        &roomID,
+		ReservationID: &reservationID,
+		Stage:         stage,
+		Success:       success,
+		Message:       message,
+	}
+	return s.reservationRepo.CreateAttemptLog(ctx, entry)
+}
+
+// ── sport config ─────────────────────────────────────────────────────────────
+
+type sportConfig struct {
+	RequiresBuddyCode bool
+	MinMemberCount    int
+}
+
+// getSportConfig returns booking rules for a sport type.
+// Badminton and tennis require a buddy code and at least 2 members.
+func getSportConfig(sportType string) sportConfig {
+	switch sportType {
+	case "羽毛球", "网球":
+		return sportConfig{RequiresBuddyCode: true, MinMemberCount: 2}
+	default:
+		return sportConfig{RequiresBuddyCode: false, MinMemberCount: 1}
+	}
+}
+
+// ── helpers ───────────────────────────────────────────────────────────────────
+
 func trimString(v any) string {
 	switch val := v.(type) {
 	case string:
@@ -115,8 +545,48 @@ func trimString(v any) string {
 	return ""
 }
 
-// walkVenues parses TYYS venue data and visits each venue object that has sportName field.
-// It recursively walks through the JSON data structure to find all venue objects.
+func textMatches(got, want string) bool {
+	want = strings.TrimSpace(want)
+	if want == "" {
+		return true
+	}
+	got = strings.TrimSpace(got)
+	return got == want || strings.Contains(got, want) || strings.Contains(want, got)
+}
+
+// extractHHmm extracts "HH:mm" from a "YYYY-MM-DD HH:mm" string.
+func extractHHmm(datetime string) string {
+	if i := strings.LastIndex(datetime, " "); i >= 0 {
+		return datetime[i+1:]
+	}
+	return datetime
+}
+
+// extractDayInfoMeta reads token and weekStartDate from the top level of a
+// TYYS dayInfo response. Both fields are shared across all slots in the response.
+func extractDayInfoMeta(data []byte) (token, weekStartDate string) {
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return
+	}
+	token = trimString(obj["token"])
+	weekStartDate = trimString(obj["weekStartDate"])
+	return
+}
+
+func isSlotAvailable(slot map[string]any) bool {
+	if status, ok := slot["reservationStatus"].(float64); ok && status != 1 {
+		return false
+	}
+	if count, ok := slot["alreadyNum"].(float64); ok && count > 0 {
+		return false
+	}
+	if tradeNo := trimString(slot["tradeNo"]); tradeNo != "" && tradeNo != "null" {
+		return false
+	}
+	return true
+}
+
 func walkVenues(data []byte, visit func(map[string]any)) {
 	var payload any
 	if err := json.Unmarshal(data, &payload); err != nil {
@@ -129,8 +599,6 @@ func walkVenues(data []byte, visit func(map[string]any)) {
 	})
 }
 
-// walkJSONObjects recursively walks a parsed JSON structure and calls visit for each object.
-// It handles both maps and arrays, drilling down into nested structures.
 func walkJSONObjects(value any, visit func(map[string]any)) {
 	switch typed := value.(type) {
 	case map[string]any:
@@ -145,114 +613,35 @@ func walkJSONObjects(value any, visit func(map[string]any)) {
 	}
 }
 
-// textMatches is a flexible string matcher for reservation fields.
-// It returns true if want is empty or if got contains want or equals want.
-func textMatches(got, want string) bool {
-	want = strings.TrimSpace(want)
-	if want == "" {
-		return true
-	}
-	got = strings.TrimSpace(got)
-	return got == want || strings.Contains(got, want) || strings.Contains(want, got)
-}
-
-func (s *ReservationService) ListSlots(ctx context.Context, sportType, campusName, venueName, reservationDate string) ([]ReservationSlotItem, error) {
-	// Step 1: Get venue info to find venueId and venueSiteId
-	venueResp, err := s.tyys.VenueInfo(ctx, 0)
-	if err != nil {
-		return nil, fmt.Errorf("get venue info: %w", err)
-	}
-
-	// Find matching venue and extract IDs
-	var venueID, venueSiteID string
-	walkVenues(venueResp.Data, func(obj map[string]any) {
-		if venueID != "" {
-			return // already found
-		}
-		sportGot := trimString(obj["sportName"])
-		campusGot := trimString(obj["campusName"])
-		venueGot := trimString(obj["venueName"])
-		if !textMatches(sportGot, sportType) {
-			return
-		}
-		if !textMatches(campusGot, campusName) {
-			return
-		}
-		if !textMatches(venueGot, venueName) {
-			return
-		}
-		venueID = trimString(obj["venueId"])
-		venueSiteID = trimString(obj["id"])
-	})
-
-	if venueID == "" || venueSiteID == "" {
-		return nil, fmt.Errorf("venue not found for sport=%s campus=%s venue=%s", sportType, campusName, venueName)
-	}
-
-	// Step 2: Get day info (available slots)
-	params := url.Values{}
-	params.Set("venueId", venueID)
-	params.Set("venueSiteId", venueSiteID)
-	params.Set("siteId", venueSiteID)
-	params.Set("date", reservationDate)
-	params.Set("reservationDate", reservationDate)
-	params.Set("searchDate", reservationDate)
-
-	dayResp, err := s.tyys.ReservationDayInfo(ctx, params)
-	if err != nil {
-		return nil, fmt.Errorf("get day info: %w", err)
-	}
-
-	// Step 3: Parse slots from day info response
-	var slots []ReservationSlotItem
-	walkSlots(dayResp.Data, func(slot map[string]any) {
-		item := ReservationSlotItem{
-			SlotKey:   trimString(slot["timeId"]),
-			StartTime: trimString(slot["startDate"]),
-			EndTime:   trimString(slot["endDate"]),
-			Available: isSlotAvailable(slot),
-		}
-		if name := trimString(slot["spaceName"]); name != "" {
-			item.SpaceName = &name
-		}
-		slots = append(slots, item)
-	})
-
-	return slots, nil
-}
-
-// isSlotAvailable checks if a slot is available for booking.
-func isSlotAvailable(slot map[string]any) bool {
-	if status, ok := slot["reservationStatus"].(float64); ok && status != 1 {
-		return false
-	}
-	if count, ok := slot["alreadyNum"].(float64); ok && count > 0 {
-		return false
-	}
-	if tradeNo := trimString(slot["tradeNo"]); tradeNo != "" && tradeNo != "null" {
-		return false
-	}
-	return true
-}
-
-// walkSlots walks through parsed JSON and visits each slot object.
-func walkSlots(data []byte, visit func(map[string]any)) {
+// walkSlotsWithContext walks the TYYS dayInfo response and calls visit for each
+// slot object (identified by having a "startDate" field), passing the timeID
+// (the map key under which the slot is stored) and the parent space object.
+// TYYS structure: space{ id, spaceName, "<timeId>": { startDate, endDate, … } }
+func walkSlotsWithContext(data []byte, visit func(timeID string, slot, space map[string]any)) {
 	var payload any
 	if err := json.Unmarshal(data, &payload); err != nil {
 		return
 	}
-	walkJSONObjects(payload, func(obj map[string]any) {
-		// A slot object has startDate and endDate fields
-		if _, hasStart := obj["startDate"]; hasStart {
-			visit(obj)
+	var walk func(any)
+	walk = func(value any) {
+		switch typed := value.(type) {
+		case map[string]any:
+			for k, child := range typed {
+				if obj, ok := child.(map[string]any); ok {
+					if _, hasStart := obj["startDate"]; hasStart {
+						visit(k, obj, typed) // typed is the parent space object
+					} else {
+						walk(obj)
+					}
+				} else {
+					walk(child)
+				}
+			}
+		case []any:
+			for _, child := range typed {
+				walk(child)
+			}
 		}
-	})
-}
-
-func (s *ReservationService) Preview(ctx context.Context, input ReservationPreviewInput) (*ReservationPreviewOutput, error) {
-	return nil, fmt.Errorf("reservation service Preview not implemented")
-}
-
-func (s *ReservationService) Submit(ctx context.Context, input ReservationPreviewInput) (*models.RoomReservation, error) {
-	return nil, fmt.Errorf("reservation service Submit not implemented")
+	}
+	walk(payload)
 }

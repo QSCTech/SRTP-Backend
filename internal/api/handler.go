@@ -367,14 +367,33 @@ func (h *Handler) ListReservationVenues(c *gin.Context, params gen.ListReservati
 }
 
 func (h *Handler) ListReservationSlots(c *gin.Context, params gen.ListReservationSlotsParams) {
-	items, err := h.reservationService.ListSlots(c.Request.Context(), params.SportType, params.CampusName, params.VenueName, params.ReservationDate.String())
+	groups, err := h.reservationService.ListSlots(c.Request.Context(), params.SportType, params.CampusName, params.VenueName, params.ReservationDate.String())
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp := gen.ReservationSlotListResponse{Items: make([]gen.ReservationSlot, 0, len(items))}
-	for _, item := range items {
-		resp.Items = append(resp.Items, gen.ReservationSlot{SlotKey: item.SlotKey, StartTime: item.StartTime, EndTime: item.EndTime, Available: item.Available, SpaceName: item.SpaceName})
+	resp := gen.ReservationSlotListResponse{Items: make([]gen.ReservationSlotGroup, 0, len(groups))}
+	for _, g := range groups {
+		spaces := make([]gen.ReservationSpaceSlot, 0, len(g.Spaces))
+		for _, sp := range g.Spaces {
+			spaces = append(spaces, gen.ReservationSpaceSlot{
+				SlotKey:       sp.SlotKey,
+				VenueSiteId:   sp.VenueSiteID,
+				SpaceId:       sp.SpaceID,
+				SpaceName:     stringPtrOrNil(sp.SpaceName),
+				Available:     sp.Available,
+				Token:         sp.Token,
+				WeekStartDate: parseDatePtr(sp.WeekStartDate),
+			})
+		}
+		resp.Items = append(resp.Items, gen.ReservationSlotGroup{
+			ReservationDate: openapi_types.Date{Time: mustParseDate(g.ReservationDate)},
+			TimeId:          g.TimeID,
+			StartTime:       g.StartTime,
+			EndTime:         g.EndTime,
+			DisplayLabel:    g.DisplayLabel,
+			Spaces:          spaces,
+		})
 	}
 	response.JSON(c, http.StatusOK, resp)
 }
@@ -489,10 +508,12 @@ func buildReservationPreviewInput(roomID uint, req gen.ReservationSubmitRequest)
 		StartTime:       req.StartTime,
 		EndTime:         req.EndTime,
 		BuddyCode:       req.BuddyCode,
-		VenueID:         int64PtrToUintPtr(req.VenueId),
 		VenueSiteID:     int64PtrToUintPtr(req.VenueSiteId),
 		SpaceID:         int64PtrToUintPtr(req.SpaceId),
 		SpaceName:       req.SpaceName,
+		TimeID:          int64PtrToStrPtr(req.TimeId),
+		Token:           req.Token,
+		WeekStartDate:   datePtrToStrPtr(req.WeekStartDate),
 	}
 }
 

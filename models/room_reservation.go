@@ -12,10 +12,12 @@ type RoomReservation struct {
 	ReservationDate   string `gorm:"size:10;not null"`
 	StartTime         string `gorm:"size:16;not null"`
 	EndTime           string `gorm:"size:16;not null"`
-	VenueID           *uint
 	VenueSiteID       *uint
 	SpaceID           *uint
 	SpaceName         string `gorm:"size:64"`
+	TimeID            string `gorm:"size:32"`
+	Token             string `gorm:"size:256"`
+	WeekStartDate     string `gorm:"size:10"`
 	BuddyCode         string `gorm:"size:32"`
 	BuddyUserIDs      string `gorm:"type:text"`
 	ReservationStatus string `gorm:"size:32;not null;default:'pending';index"`

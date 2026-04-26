@@ -1102,29 +1102,56 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ReservationVenue'
-    ReservationSlot:
+    ReservationSpaceSlot:
       type: object
-      required: [slot_key, start_time, end_time, available]
-      description: 预约时间段
+      required: [slot_key, venue_site_id, space_id, available, token]
+      description: 某时段内某个具体场地的预约信息
       properties:
         slot_key:
           type: string
-          description: 时间段唯一标识，用于提交预约
-          example: "123456"
-        start_time:
-          type: string
-          description: 开始时间，格式 HH:mm 或 YYYY-MM-DD HH:mm
-          example: "2026-04-21 08:30"
-        end_time:
-          type: string
-          description: 结束时间，格式 HH:mm 或 YYYY-MM-DD HH:mm
-          example: "2026-04-21 09:30"
-        available:
-          type: boolean
-          description: 是否可预约
+          description: 场地+时段唯一标识，格式 spaceId|timeId
+          example: "320|21996"
+        venue_site_id:
+          type: integer
+          format: int64
+        space_id:
+          type: integer
+          format: int64
         space_name:
           type: string
-          description: 场地名称（如羽毛球场1号场）
+        available:
+          type: boolean
+        token:
+          type: string
+          description: TYYS 预约令牌，提交时直接传入
+        week_start_date:
+          type: string
+          format: date
+          description: TYYS 周开始日期，缺省则使用 reservation_date
+    ReservationSlotGroup:
+      type: object
+      required: [reservation_date, time_id, start_time, end_time, display_label, spaces]
+      description: 按时间段聚合的预约时段，包含该时段内所有可选场地
+      properties:
+        reservation_date:
+          type: string
+          format: date
+        time_id:
+          type: integer
+          format: int64
+        start_time:
+          type: string
+          example: "17:30"
+        end_time:
+          type: string
+          example: "18:30"
+        display_label:
+          type: string
+          example: "17:30-18:30"
+        spaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservationSpaceSlot'
     ReservationSlotListResponse:
       type: object
       required: [items]
@@ -1132,7 +1159,7 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/ReservationSlot'
+            $ref: '#/components/schemas/ReservationSlotGroup'
     ReservationSubmitRequest:
       type: object
       required:
@@ -1158,9 +1185,6 @@ components:
           type: string
         buddy_code:
           type: string
-        venue_id:
-          type: integer
-          format: int64
         venue_site_id:
           type: integer
           format: int64
@@ -1169,6 +1193,17 @@ components:
           format: int64
         space_name:
           type: string
+        time_id:
+          type: integer
+          format: int64
+          description: TYYS 时段 ID，来自 slots 接口
+        token:
+          type: string
+          description: TYYS 预约令牌，来自 slots 接口
+        week_start_date:
+          type: string
+          format: date
+          description: TYYS 周开始日期，来自 slots 接口
     ReservationPreviewResponse:
       type: object
       required:
@@ -1204,9 +1239,6 @@ components:
           type: string
         buddy_code:
           type: string
-        venue_id:
-          type: integer
-          format: int64
         venue_site_id:
           type: integer
           format: int64
@@ -1215,6 +1247,14 @@ components:
           format: int64
         space_name:
           type: string
+        time_id:
+          type: integer
+          format: int64
+        token:
+          type: string
+        week_start_date:
+          type: string
+          format: date
     ReservationRecordResponse:
       type: object
       required:
@@ -1256,9 +1296,6 @@ components:
           type: string
         buddy_code:
           type: string
-        venue_id:
-          type: integer
-          format: int64
         venue_site_id:
           type: integer
           format: int64
@@ -1267,6 +1304,14 @@ components:
           format: int64
         space_name:
           type: string
+        time_id:
+          type: integer
+          format: int64
+        token:
+          type: string
+        week_start_date:
+          type: string
+          format: date
         external_order_id:
           type: string
         external_trade_no:
