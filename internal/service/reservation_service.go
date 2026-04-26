@@ -86,16 +86,17 @@ type ReservationService struct {
 	roomRepo        *repository.RoomRepository
 	reservationRepo *repository.ReservationRepository
 	tyys            *zjulogin.TYYS
+	captchaSolver   zjulogin.TYYSCaptchaSolver
 }
 
-func NewReservationService(roomRepo *repository.RoomRepository, reservationRepo *repository.ReservationRepository, tyys *zjulogin.TYYS) *ReservationService {
-	return &ReservationService{roomRepo: roomRepo, reservationRepo: reservationRepo, tyys: tyys}
+func NewReservationService(roomRepo *repository.RoomRepository, reservationRepo *repository.ReservationRepository, tyys *zjulogin.TYYS, captchaSolver zjulogin.TYYSCaptchaSolver) *ReservationService {
+	return &ReservationService{roomRepo: roomRepo, reservationRepo: reservationRepo, tyys: tyys, captchaSolver: captchaSolver}
 }
 
-func (s *ReservationService) ListVenues(ctx context.Context, sportType, campus *string) []ReservationVenueItem {
+func (s *ReservationService) ListVenues(ctx context.Context, sportType, campus *string) ([]ReservationVenueItem, error) {
 	resp, err := s.tyys.VenueInfo(ctx, 0)
-	if err != nil || resp == nil {
-		return nil
+	if err != nil {
+		return nil, fmt.Errorf("get venue info: %w", err)
 	}
 
 	var result []ReservationVenueItem
@@ -119,7 +120,7 @@ func (s *ReservationService) ListVenues(ctx context.Context, sportType, campus *
 			VenueName:  venue,
 		})
 	})
-	return result
+	return result, nil
 }
 
 func (s *ReservationService) ListSlots(ctx context.Context, sportType, campusName, venueName, reservationDate string) ([]ReservationSlotGroupItem, error) {
@@ -377,6 +378,19 @@ func (s *ReservationService) Submit(ctx context.Context, input ReservationPrevie
 		return nil, fmt.Errorf("create reservation: %w", err)
 	}
 
+	// If the TYYS window is already open, trigger in the background.
+	// The reservation is returned with status "submitting"; the goroutine
+	// updates it to "success" or "failed" once TYYS responds.
+	if status == "submitting" {
+		reservationID := reservation.ID
+		go func() {
+			ctx := context.Background()
+			if _, err := s.TriggerReservation(ctx, reservationID); err != nil {
+				_ = s.logAttempt(ctx, reservation.RoomID, reservationID, "async_trigger", false, err.Error())
+			}
+		}()
+	}
+
 	// --- 6. Mirror status onto room ---
 	room.ReservationStatus = status
 	if updateErr := s.roomRepo.Update(ctx, room); updateErr != nil {
@@ -497,6 +511,95 @@ func tyysOpenTime(reservationDate string) (time.Time, error) {
 	}
 	open := date.AddDate(0, 0, -2)
 	return time.Date(open.Year(), open.Month(), open.Day(), 9, 0, 0, 0, loc), nil
+}
+
+// TriggerReservation executes the TYYS reservation for an existing record.
+// It reads the stored slot context (venue_site_id, space_id, time_id, token,
+// week_start_date) and calls ReserveV2 directly — no dayInfo re-query is made.
+func (s *ReservationService) TriggerReservation(ctx context.Context, reservationID uint) (*models.RoomReservation, error) {
+	reservation, err := s.reservationRepo.GetByID(ctx, reservationID)
+	if err != nil {
+		return nil, fmt.Errorf("get reservation: %w", err)
+	}
+	if reservation.ReservationStatus != "submitting" {
+		return nil, fmt.Errorf("reservation %d has status %q, expected submitting", reservationID, reservation.ReservationStatus)
+	}
+	if reservation.VenueSiteID == nil || reservation.SpaceID == nil || reservation.TimeID == "" || reservation.Token == "" {
+		return nil, fmt.Errorf("reservation %d is missing required slot context", reservationID)
+	}
+
+	// Mark as running before calling TYYS.
+	now := time.Now()
+	reservation.SubmitAttemptedAt = &now
+	reservation.ScheduleStatus = "running"
+	if err := s.reservationRepo.Update(ctx, reservation); err != nil {
+		return nil, fmt.Errorf("update reservation before trigger: %w", err)
+	}
+
+	result, tyysErr := s.tyys.ReserveV2(ctx, zjulogin.TYYSReservationV2Request{
+		ReservationDate: reservation.ReservationDate,
+		WeekStartDate:   reservation.WeekStartDate,
+		Token:           reservation.Token,
+		VenueSiteID:     fmt.Sprintf("%d", *reservation.VenueSiteID),
+		SpaceID:         fmt.Sprintf("%d", *reservation.SpaceID),
+		TimeID:          reservation.TimeID,
+		BuddyCode:       reservation.BuddyCode,
+		CaptchaSolver:   s.captchaSolver,
+	})
+
+	success := tyysErr == nil && result != nil && result.Submit != nil
+	if success {
+		orderID, tradeNo := extractTYYSSubmitOrderInfo(result.Submit.Data)
+		reservation.ExternalOrderID = orderID
+		reservation.ExternalTradeNo = tradeNo
+		reservation.RawResponse = string(result.Submit.Data)
+		reservation.ReservationStatus = "success"
+		reservation.ScheduleStatus = "done"
+	} else {
+		reservation.ReservationStatus = "failed"
+		reservation.ScheduleStatus = "error"
+		if result != nil && result.Submit != nil {
+			reservation.RawResponse = string(result.Submit.Data)
+		}
+	}
+
+	if err := s.reservationRepo.Update(ctx, reservation); err != nil {
+		_ = s.logAttempt(ctx, reservation.RoomID, reservationID, "trigger_update", false, err.Error())
+		return nil, fmt.Errorf("update reservation after trigger: %w", err)
+	}
+
+	// Mirror status onto room.
+	if room, err := s.roomRepo.GetByID(ctx, reservation.RoomID); err == nil {
+		room.ReservationStatus = reservation.ReservationStatus
+		_ = s.roomRepo.Update(ctx, room)
+	}
+
+	msg := ""
+	if tyysErr != nil {
+		msg = tyysErr.Error()
+	}
+	_ = s.logAttempt(ctx, reservation.RoomID, reservationID, "trigger_reservation", success, msg)
+
+	if tyysErr != nil {
+		return reservation, fmt.Errorf("tyys reserve: %w", tyysErr)
+	}
+	return reservation, nil
+}
+
+// extractTYYSSubmitOrderInfo pulls order identifiers from a TYYS submit response.
+func extractTYYSSubmitOrderInfo(data json.RawMessage) (orderID, tradeNo string) {
+	var obj map[string]any
+	if err := json.Unmarshal(data, &obj); err != nil {
+		return
+	}
+	for _, key := range []string{"orderId", "orderSn", "id"} {
+		if v := trimString(obj[key]); v != "" {
+			orderID = v
+			break
+		}
+	}
+	tradeNo = trimString(obj["tradeNo"])
+	return
 }
 
 func (s *ReservationService) logAttempt(ctx context.Context, roomID, reservationID uint, stage string, success bool, message string) error {

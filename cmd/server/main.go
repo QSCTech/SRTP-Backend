@@ -81,7 +81,8 @@ func main() {
 	if err != nil {
 		log.Fatal("initialize TYYS client", zap.Error(err))
 	}
-	reservationService := service.NewReservationService(roomRepository, reservationRepository, tyys)
+	captchaSolver := zjulogin.TYYSPythonCaptchaSolver{}
+	reservationService := service.NewReservationService(roomRepository, reservationRepository, tyys, captchaSolver)
 	engine := api.NewRouter(log, sqlDB, userService, roomService, reservationService)
 
 	server := &http.Server{

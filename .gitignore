@@ -15,3 +15,4 @@ __pycache__/
 docs/
 prd.md
 claude.md
+test.go
