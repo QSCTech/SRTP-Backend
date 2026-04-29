@@ -16,6 +16,7 @@ import (
 	applog "github.com/QSCTech/SRTP-Backend/internal/logger"
 	"github.com/QSCTech/SRTP-Backend/internal/repository"
 	"github.com/QSCTech/SRTP-Backend/internal/service"
+	"github.com/QSCTech/SRTP-Backend/internal/zjulogin"
 	"github.com/QSCTech/SRTP-Backend/models"
 	"github.com/gin-gonic/gin"
 	"go.uber.org/zap"
@@ -70,7 +71,18 @@ func main() {
 	roomRepository := repository.NewRoomRepository(gormDB)
 	roomService := service.NewRoomService(roomRepository, userService)
 	reservationRepository := repository.NewReservationRepository(gormDB)
-	reservationService := service.NewReservationService(roomRepository, reservationRepository)
+
+	// Initialize ZJUZJL login for TYYS reservation system.
+	auth, err := zjulogin.NewFromEnv()
+	if err != nil {
+		log.Fatal("initialize zjulogin", zap.Error(err))
+	}
+	tyys, err := auth.TYYS()
+	if err != nil {
+		log.Fatal("initialize TYYS client", zap.Error(err))
+	}
+	captchaSolver := zjulogin.TYYSPythonCaptchaSolver{}
+	reservationService := service.NewReservationService(roomRepository, reservationRepository, tyys, captchaSolver)
 	engine := api.NewRouter(log, sqlDB, userService, roomService, reservationService)
 
 	server := &http.Server{

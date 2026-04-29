@@ -1,5 +1,7 @@
-// Deprecated: This function is a redundant implementation.
-// Use tyys_reservation_v2 instead for better maintenance and performance.
+//go:build ignore
+
+// Deprecated: This file documents functions in tyys_reservation.go that are
+// superseded by tyys_reservation_v2.go. Do not use these directly; call ReserveV2 instead.
 package zjulogin
 
 import (

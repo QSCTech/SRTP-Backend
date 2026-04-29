@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/QSCTech/SRTP-Backend/internal/api/gen"
@@ -358,7 +359,11 @@ func (h *Handler) RemoveRoomMember(c *gin.Context, roomId int64, userId int64) {
 }
 
 func (h *Handler) ListReservationVenues(c *gin.Context, params gen.ListReservationVenuesParams) {
-	items := h.reservationService.ListVenues(c.Request.Context(), params.SportType, params.Campus)
+	items, err := h.reservationService.ListVenues(c.Request.Context(), params.SportType, params.Campus)
+	if err != nil {
+		response.Error(c, http.StatusBadGateway, "failed to fetch venues")
+		return
+	}
 	resp := gen.ReservationVenueListResponse{Items: make([]gen.ReservationVenue, 0, len(items))}
 	for _, item := range items {
 		resp.Items = append(resp.Items, gen.ReservationVenue{SportType: item.SportType, CampusName: item.CampusName, VenueName: item.VenueName})
@@ -367,14 +372,33 @@ func (h *Handler) ListReservationVenues(c *gin.Context, params gen.ListReservati
 }
 
 func (h *Handler) ListReservationSlots(c *gin.Context, params gen.ListReservationSlotsParams) {
-	items, err := h.reservationService.ListSlots(c.Request.Context(), params.SportType, params.CampusName, params.VenueName, params.ReservationDate.String())
+	groups, err := h.reservationService.ListSlots(c.Request.Context(), params.SportType, params.CampusName, params.VenueName, params.ReservationDate.String())
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	resp := gen.ReservationSlotListResponse{Items: make([]gen.ReservationSlot, 0, len(items))}
-	for _, item := range items {
-		resp.Items = append(resp.Items, gen.ReservationSlot{SlotKey: item.SlotKey, StartTime: item.StartTime, EndTime: item.EndTime, Available: item.Available, SpaceName: item.SpaceName})
+	resp := gen.ReservationSlotListResponse{Items: make([]gen.ReservationSlotGroup, 0, len(groups))}
+	for _, g := range groups {
+		spaces := make([]gen.ReservationSpaceSlot, 0, len(g.Spaces))
+		for _, sp := range g.Spaces {
+			spaces = append(spaces, gen.ReservationSpaceSlot{
+				SlotKey:       sp.SlotKey,
+				VenueSiteId:   sp.VenueSiteID,
+				SpaceId:       sp.SpaceID,
+				SpaceName:     stringPtrOrNil(sp.SpaceName),
+				Available:     sp.Available,
+				Token:         sp.Token,
+				WeekStartDate: parseDatePtr(sp.WeekStartDate),
+			})
+		}
+		resp.Items = append(resp.Items, gen.ReservationSlotGroup{
+			ReservationDate: openapi_types.Date{Time: mustParseDate(g.ReservationDate)},
+			TimeId:          g.TimeID,
+			StartTime:       g.StartTime,
+			EndTime:         g.EndTime,
+			DisplayLabel:    g.DisplayLabel,
+			Spaces:          spaces,
+		})
 	}
 	response.JSON(c, http.StatusOK, resp)
 }
@@ -400,6 +424,22 @@ func (h *Handler) SubmitRoomReservation(c *gin.Context, roomId int64) {
 		return
 	}
 	reservation, err := h.reservationService.Submit(c.Request.Context(), buildReservationPreviewInput(uint(roomId), req))
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.JSON(c, http.StatusOK, buildReservationRecordResponse(reservation))
+}
+
+func (h *Handler) TriggerReservationTask(c *gin.Context) {
+	var req struct {
+		ReservationID uint `json:"reservation_id"`
+	}
+	if err := c.ShouldBindJSON(&req); err != nil || req.ReservationID == 0 {
+		response.Error(c, http.StatusBadRequest, "reservation_id is required")
+		return
+	}
+	reservation, err := h.reservationService.TriggerReservation(c.Request.Context(), req.ReservationID)
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -489,10 +529,12 @@ func buildReservationPreviewInput(roomID uint, req gen.ReservationSubmitRequest)
 		StartTime:       req.StartTime,
 		EndTime:         req.EndTime,
 		BuddyCode:       req.BuddyCode,
-		VenueID:         int64PtrToUintPtr(req.VenueId),
 		VenueSiteID:     int64PtrToUintPtr(req.VenueSiteId),
 		SpaceID:         int64PtrToUintPtr(req.SpaceId),
 		SpaceName:       req.SpaceName,
+		TimeID:          int64PtrToStrPtr(req.TimeId),
+		Token:           req.Token,
+		WeekStartDate:   datePtrToStrPtr(req.WeekStartDate),
 	}
 }
 
@@ -508,10 +550,12 @@ func buildReservationPreviewResponse(preview *service.ReservationPreviewOutput) 
 		StartTime:         preview.StartTime,
 		EndTime:           preview.EndTime,
 		BuddyCode:         preview.BuddyCode,
-		VenueId:           uintPtrToInt64Ptr(preview.VenueID),
 		VenueSiteId:       uintPtrToInt64Ptr(preview.VenueSiteID),
 		SpaceId:           uintPtrToInt64Ptr(preview.SpaceID),
 		SpaceName:         preview.SpaceName,
+		TimeId:            strPtrToInt64Ptr(preview.TimeID),
+		Token:             preview.Token,
+		WeekStartDate:     strPtrToDatePtr(preview.WeekStartDate),
 	}
 }
 
@@ -528,10 +572,12 @@ func buildReservationRecordResponse(reservation *models.RoomReservation) gen.Res
 		StartTime:         reservation.StartTime,
 		EndTime:           reservation.EndTime,
 		BuddyCode:         stringPtrOrNil(reservation.BuddyCode),
-		VenueId:           uintPtrToInt64Ptr(reservation.VenueID),
 		VenueSiteId:       uintPtrToInt64Ptr(reservation.VenueSiteID),
 		SpaceId:           uintPtrToInt64Ptr(reservation.SpaceID),
 		SpaceName:         stringPtrOrNil(reservation.SpaceName),
+		TimeId:            stringToInt64Ptr(reservation.TimeID),
+		Token:             stringPtrOrNil(reservation.Token),
+		WeekStartDate:     parseDatePtr(reservation.WeekStartDate),
 		ExternalOrderId:   stringPtrOrNil(reservation.ExternalOrderID),
 		ExternalTradeNo:   stringPtrOrNil(reservation.ExternalTradeNo),
 		CreatedAt:         reservation.CreatedAt,
@@ -605,4 +651,53 @@ func mustParseDate(value string) time.Time {
 		return time.Time{}
 	}
 	return t
+}
+
+func parseDatePtr(s string) *openapi_types.Date {
+	if s == "" {
+		return nil
+	}
+	d := openapi_types.Date{Time: mustParseDate(s)}
+	return &d
+}
+
+func stringToInt64Ptr(s string) *int64 {
+	if s == "" {
+		return nil
+	}
+	n, err := strconv.ParseInt(s, 10, 64)
+	if err != nil {
+		return nil
+	}
+	return &n
+}
+
+func int64PtrToStrPtr(v *int64) *string {
+	if v == nil {
+		return nil
+	}
+	s := strconv.FormatInt(*v, 10)
+	return &s
+}
+
+func strPtrToInt64Ptr(v *string) *int64 {
+	if v == nil {
+		return nil
+	}
+	return stringToInt64Ptr(*v)
+}
+
+func datePtrToStrPtr(v *openapi_types.Date) *string {
+	if v == nil {
+		return nil
+	}
+	s := v.Format("2006-01-02")
+	return &s
+}
+
+func strPtrToDatePtr(v *string) *openapi_types.Date {
+	if v == nil {
+		return nil
+	}
+	return parseDatePtr(*v)
 }

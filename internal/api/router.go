@@ -17,5 +17,8 @@ func NewRouter(log *zap.Logger, db *sql.DB, userService *service.UserService, ro
 	handler := NewHandler(db, userService, roomService, reservationService)
 	gen.RegisterHandlers(engine, handler)
 
+	// Internal endpoint for the reservation scheduler to trigger a pending reservation.
+	engine.POST("/internal/tasks/reservation-trigger", handler.TriggerReservationTask)
+
 	return engine
 }

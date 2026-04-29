@@ -483,13 +483,21 @@ paths:
     get:
       operationId: listReservationVenues
       summary: List supported reservation venues
+      description: |
+        返回所有可预约的场馆列表，支持按球类(sport_type)和校区(campus)筛选。
+        可选值来自 TYYS 体育馆系统：
+        - **sport_type** 可选值：羽毛球、健身、游泳、网球
+        - **campus** 可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
+        示例：sport_type=羽毛球&campus=紫金港 返回紫金港校区所有羽毛球场馆
       parameters:
         - in: query
           name: sport_type
+          description: 球类类型，如羽毛球、健身、游泳、网球
           schema:
             type: string
         - in: query
           name: campus
+          description: 校区名称，如紫金港校区、华家池校区、玉泉校区、西溪校区
           schema:
             type: string
       responses:
@@ -502,29 +510,43 @@ paths:
   /reservations/slots:
     get:
       operationId: listReservationSlots
-      summary: List supported reservation slots
+      summary: List available time slots for a venue
+      description: |
+        查询指定场馆在某日期的可预约时间段。
+        - **sport_type** 可选值：羽毛球、健身、游泳、网球
+        - **campus_name** 可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
+        - **venue_name** 可选值（按校区和球类不同）：如风雨操场、体育馆、羽毛球馆、游泳馆等
+        - **reservation_date** 格式：YYYY-MM-DD，如 2026-04-21
       parameters:
         - in: query
           name: sport_type
+          description: 球类类型。可选值：羽毛球、健身、游泳、网球
           required: true
           schema:
             type: string
+            example: 羽毛球
         - in: query
           name: campus_name
+          description: 校区名称。可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
           required: true
           schema:
             type: string
+            example: 紫金港校区
         - in: query
           name: venue_name
+          description: 场馆名称
           required: true
           schema:
             type: string
+            example: 风雨操场
         - in: query
           name: reservation_date
+          description: 预约日期，格式 YYYY-MM-DD
           required: true
           schema:
             type: string
             format: date
+            example: "2026-04-21"
       responses:
         '200':
           description: Reservation slot list
@@ -1061,13 +1083,17 @@ components:
     ReservationVenue:
       type: object
       required: [sport_type, campus_name, venue_name]
+      description: 场馆信息
       properties:
         sport_type:
           type: string
+          description: 球类类型。可选值：羽毛球、健身、游泳、网球
         campus_name:
           type: string
+          description: 校区名称。可选值：紫金港校区、华家池校区、玉泉校区、西溪校区
         venue_name:
           type: string
+          description: 场馆名称
     ReservationVenueListResponse:
       type: object
       required: [items]
@@ -1076,20 +1102,56 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/ReservationVenue'
-    ReservationSlot:
+    ReservationSpaceSlot:
       type: object
-      required: [slot_key, start_time, end_time, available]
+      required: [slot_key, venue_site_id, space_id, available, token]
+      description: 某时段内某个具体场地的预约信息
       properties:
         slot_key:
           type: string
-        start_time:
-          type: string
-        end_time:
+          description: 场地+时段唯一标识，格式 spaceId|timeId
+          example: "320|21996"
+        venue_site_id:
+          type: integer
+          format: int64
+        space_id:
+          type: integer
+          format: int64
+        space_name:
           type: string
         available:
           type: boolean
-        space_name:
+        token:
           type: string
+          description: TYYS 预约令牌，提交时直接传入
+        week_start_date:
+          type: string
+          format: date
+          description: TYYS 周开始日期，缺省则使用 reservation_date
+    ReservationSlotGroup:
+      type: object
+      required: [reservation_date, time_id, start_time, end_time, display_label, spaces]
+      description: 按时间段聚合的预约时段，包含该时段内所有可选场地
+      properties:
+        reservation_date:
+          type: string
+          format: date
+        time_id:
+          type: integer
+          format: int64
+        start_time:
+          type: string
+          example: "17:30"
+        end_time:
+          type: string
+          example: "18:30"
+        display_label:
+          type: string
+          example: "17:30-18:30"
+        spaces:
+          type: array
+          items:
+            $ref: '#/components/schemas/ReservationSpaceSlot'
     ReservationSlotListResponse:
       type: object
       required: [items]
@@ -1097,7 +1159,7 @@ components:
         items:
           type: array
           items:
-            $ref: '#/components/schemas/ReservationSlot'
+            $ref: '#/components/schemas/ReservationSlotGroup'
     ReservationSubmitRequest:
       type: object
       required:
@@ -1123,9 +1185,6 @@ components:
           type: string
         buddy_code:
           type: string
-        venue_id:
-          type: integer
-          format: int64
         venue_site_id:
           type: integer
           format: int64
@@ -1134,6 +1193,17 @@ components:
           format: int64
         space_name:
           type: string
+        time_id:
+          type: integer
+          format: int64
+          description: TYYS 时段 ID，来自 slots 接口
+        token:
+          type: string
+          description: TYYS 预约令牌，来自 slots 接口
+        week_start_date:
+          type: string
+          format: date
+          description: TYYS 周开始日期，来自 slots 接口
     ReservationPreviewResponse:
       type: object
       required:
@@ -1169,9 +1239,6 @@ components:
           type: string
         buddy_code:
           type: string
-        venue_id:
-          type: integer
-          format: int64
         venue_site_id:
           type: integer
           format: int64
@@ -1180,6 +1247,14 @@ components:
           format: int64
         space_name:
           type: string
+        time_id:
+          type: integer
+          format: int64
+        token:
+          type: string
+        week_start_date:
+          type: string
+          format: date
     ReservationRecordResponse:
       type: object
       required:
@@ -1221,9 +1296,6 @@ components:
           type: string
         buddy_code:
           type: string
-        venue_id:
-          type: integer
-          format: int64
         venue_site_id:
           type: integer
           format: int64
@@ -1232,6 +1304,14 @@ components:
           format: int64
         space_name:
           type: string
+        time_id:
+          type: integer
+          format: int64
+        token:
+          type: string
+        week_start_date:
+          type: string
+          format: date
         external_order_id:
           type: string
         external_trade_no:

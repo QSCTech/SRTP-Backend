@@ -14,3 +14,5 @@ __pycache__/
 .claude/
 docs/
 prd.md
+claude.md
+test.go
