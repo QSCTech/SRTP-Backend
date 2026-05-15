@@ -52,7 +52,7 @@ func (r *RoomRepository) GetByPublicID(ctx context.Context, publicID string) (*m
 	return &room, nil
 }
 
-func (r *RoomRepository) GetByInviteCode(ctx context.Context, code string) (*models.Room, error) {
+func (r *RoomRepository) GetByBuddyCode(ctx context.Context, code string) (*models.Room, error) {
 	var room models.Room
 	if err := r.db.WithContext(ctx).Preload("Owner").Where("invite_code = ?", code).First(&room).Error; err != nil {
 		return nil, err

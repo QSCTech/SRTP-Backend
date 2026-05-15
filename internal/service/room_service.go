@@ -65,7 +65,7 @@ type UpdateRoomInput struct {
 }
 
 type JoinRoomByCodeInput struct {
-	InviteCode string
+	BuddyCode string
 }
 
 type CreateJoinRequestInput struct {
@@ -171,6 +171,24 @@ func (s *RoomService) GetMyStats(ctx context.Context) (*UserStatsOutput, error) 
 }
 
 /*基础功能：拿数据、判断*/
+
+func (s *RoomService) GetByPublicID(ctx context.Context, publicID string) (*models.Room, []models.RoomMember, error) {
+    room, err := s.repo.GetByPublicID(ctx, publicID)
+    if err != nil {
+        if errors.Is(err, gorm.ErrRecordNotFound) {
+            var ErrRoomNotFound = errors.New("room not found")
+            return nil, nil, ErrRoomNotFound
+        }
+        return nil, nil, err
+    }
+
+    members, err := s.repo.GetMembersByRoomID(ctx, room.ID)
+    if err != nil {
+        return nil, nil, err
+    }
+
+    return room, members, nil
+}
 
 func (s *RoomService) GetByID(ctx context.Context, id uint) (*models.Room, []models.RoomMember, error) {
     room, err := s.repo.GetByID(ctx, id)
