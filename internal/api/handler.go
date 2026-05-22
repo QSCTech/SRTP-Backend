@@ -22,10 +22,11 @@ type Handler struct {
 	userService        *service.UserService
 	roomService        *service.RoomService
 	reservationService *service.ReservationService
+	auditService *service.AuditService
 }
 
-func NewHandler(db *sql.DB, userService *service.UserService, roomService *service.RoomService, reservationService *service.ReservationService) *Handler {
-	return &Handler{db: db, userService: userService, roomService: roomService, reservationService: reservationService}
+func NewHandler(db *sql.DB, userService *service.UserService, roomService *service.RoomService, reservationService *service.ReservationService, auditService *service.AuditService) *Handler {
+	return &Handler{db: db, userService: userService, roomService: roomService, reservationService: reservationService, auditService: auditService}
 }
 
 func (h *Handler) GetHealthz(c *gin.Context) {
@@ -483,6 +484,51 @@ func (h *Handler) SubmitRoomReservation(c *gin.Context, roomId openapi_types.UUI
 	response.JSON(c, http.StatusOK, buildReservationRecordResponse(reservation, existingRoom.PublicID))
 }
 
+func (h *Handler) SubmitProfileAudit(c *gin.Context) {
+	currentUser, err := h.userService.GetCurrent(c.Request.Context())
+	if err != nil {
+		response.Error(c, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+	var req gen.SubmitProfileAuditRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	audit, err := h.auditService.SubmitProfile(c.Request.Context(), currentUser.ID, service.SubmitProfileInput{
+		Nickname: req.Nickname,
+		Bio:      req.Bio,
+	})
+	if err != nil {
+		if errors.Is(err, service.ErrRiskWordDetected) {
+			response.Error(c, http.StatusBadRequest, err.Error())
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "failed to submit profile")
+		return
+	}
+	response.JSON(c, http.StatusCreated, buildProfileAuditResponse(audit))
+}
+
+func (h *Handler) GetProfileAuditStatus(c *gin.Context) {
+	currentUser, err := h.userService.GetCurrent(c.Request.Context())
+	if err != nil {
+		response.Error(c, http.StatusUnauthorized, "user not authenticated")
+		return
+	}
+	audit, err := h.auditService.GetLatestAudit(c.Request.Context(), currentUser.ID)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			response.Error(c, http.StatusNotFound, "no audit record found")
+			return
+		}
+		response.Error(c, http.StatusInternalServerError, "failed to fetch audit status")
+		return
+	}
+	response.JSON(c, http.StatusOK, buildProfileAuditResponse(audit))
+}
+
+
 func buildUserResponse(user *models.User) gen.UserResponse {
 	return gen.UserResponse{Id: int64(user.ID), PublicId: mustParseUUID(user.PublicID), AuthUid: user.AuthUID, Nickname: user.Nickname, AvatarUrl: user.AvatarURL, Gender: user.Gender, Bio: user.Bio, ProfileStatus: user.ProfileStatus, CreatedAt: user.CreatedAt, UpdatedAt: user.UpdatedAt}
 }
@@ -635,6 +681,33 @@ func buildReservationRecordResponse(reservation *models.RoomReservation, roomPub
 		UpdatedAt:         reservation.UpdatedAt,
 	}
 }
+
+func buildProfileAuditResponse(audit *models.UserProfileAudit) gen.ProfileAuditResponse {
+	status := gen.ProfileAuditResponseStatus(audit.Status)
+
+	resp := gen.ProfileAuditResponse{
+		Id:                int64(audit.ID),
+		UserId:            int64(audit.UserID),
+		SubmittedNickname: audit.SubmittedNickname,
+		SubmittedBio:      audit.SubmittedBio,
+		Status:            status,
+		CreatedAt:         audit.CreatedAt,
+	}
+	if audit.ReviewedBy != nil {
+		reviewedBy := int64(*audit.ReviewedBy)
+		resp.ReviewedBy = &reviewedBy
+	}
+	if audit.ReviewedAt != nil {
+		resp.ReviewedAt = audit.ReviewedAt
+	}
+	if audit.RejectReason != "" {
+		rejectReason := audit.RejectReason
+		resp.RejectReason = &rejectReason
+	}
+
+	return resp
+}
+
 
 func optionalInt(value *int) *int32 {
 	if value == nil {

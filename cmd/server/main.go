@@ -56,6 +56,7 @@ func main() {
 		&models.ReservationAttemptLog{},
 		&models.UserProfileAudit{},
 		&models.Notification{},
+		&models.RiskWord{},
 	); err != nil {
 		log.Fatal("auto migrate models", zap.Error(err))
 	}
@@ -80,7 +81,17 @@ func main() {
 	roomService := service.NewRoomService(roomRepository, userService)
 	reservationRepository := repository.NewReservationRepository(gormDB)
 	reservationService := service.NewReservationService(roomRepository, reservationRepository)
-	engine := api.NewRouter(log, sqlDB, userService, roomService, reservationService)
+	engine := api.NewRouter(log, sqlDB, userService, roomService, reservationService, auditService)
+	
+	riskWordRepository := repository.NewRiskWordRepository(gormDB)
+
+	auditService := service.NewAuditService(auditRepository, userRepository, riskWordRepository, log)
+
+	auditService.StartPeriodicReload(context.Background(), 5*time.Minute)
+
+	if err := auditService.InitRiskWords(context.Background()); err != nil {
+		log.Fatal("load risk words", zap.Error(err))
+	}
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),

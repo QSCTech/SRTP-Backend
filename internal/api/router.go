@@ -10,11 +10,11 @@ import (
 	"go.uber.org/zap"
 )
 
-func NewRouter(log *zap.Logger, db *sql.DB, userService *service.UserService, roomService *service.RoomService, reservationService *service.ReservationService) *gin.Engine {
+func NewRouter(log *zap.Logger, db *sql.DB, userService *service.UserService, roomService *service.RoomService, reservationService *service.ReservationService, auditService *service.AuditService) *gin.Engine {
 	engine := gin.New()
 	engine.Use(middleware.Zap(log), middleware.Recovery(log))
 
-	handler := NewHandler(db, userService, roomService, reservationService)
+	handler := NewHandler(db, userService, roomService, reservationService, auditService)
 	gen.RegisterHandlers(engine, handler)
 
 	return engine
