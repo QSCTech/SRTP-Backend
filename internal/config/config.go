@@ -24,6 +24,7 @@ type Config struct {
 	DBConnMaxLifetimeMin int
 	DBConnMaxIdleTimeMin int
 	LogLevel             string
+	JWTSecret            string
 }
 
 func Load() (Config, error) {
@@ -33,27 +34,22 @@ func Load() (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
-
 	dbPort, err := getEnvInt("DB_PORT", 5432)
 	if err != nil {
 		return Config{}, err
 	}
-
 	dbMaxIdleConns, err := getEnvInt("DB_MAX_IDLE_CONNS", 10)
 	if err != nil {
 		return Config{}, err
 	}
-
 	dbMaxOpenConns, err := getEnvInt("DB_MAX_OPEN_CONNS", 50)
 	if err != nil {
 		return Config{}, err
 	}
-
 	dbConnMaxLifetimeMin, err := getEnvInt("DB_CONN_MAX_LIFETIME_MIN", 30)
 	if err != nil {
 		return Config{}, err
 	}
-
 	dbConnMaxIdleTimeMin, err := getEnvInt("DB_CONN_MAX_IDLE_TIME_MIN", 10)
 	if err != nil {
 		return Config{}, err
@@ -74,12 +70,12 @@ func Load() (Config, error) {
 		DBConnMaxLifetimeMin: dbConnMaxLifetimeMin,
 		DBConnMaxIdleTimeMin: dbConnMaxIdleTimeMin,
 		LogLevel:             strings.ToLower(getEnv("LOG_LEVEL", "info")),
+		JWTSecret:            getEnv("JWT_SECRET", "change-me-in-production"),
 	}
 
 	if err := cfg.Validate(); err != nil {
 		return Config{}, err
 	}
-
 	return cfg, nil
 }
 
@@ -117,7 +113,9 @@ func (c Config) Validate() error {
 	if strings.TrimSpace(c.LogLevel) == "" {
 		return fmt.Errorf("LOG_LEVEL is required")
 	}
-
+	if strings.TrimSpace(c.JWTSecret) == "" {
+		return fmt.Errorf("JWT_SECRET is required")
+	}
 	return nil
 }
 
@@ -134,11 +132,9 @@ func getEnvInt(key string, fallback int) (int, error) {
 	if value == "" {
 		return fallback, nil
 	}
-
 	parsed, err := strconv.Atoi(value)
 	if err != nil {
 		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
 	}
-
 	return parsed, nil
 }

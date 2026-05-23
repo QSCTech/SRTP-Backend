@@ -35,7 +35,6 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = log.Sync() }()
-
 	log = log.With(zap.String("service", "srtp-backend"), zap.String("env", cfg.AppEnv))
 
 	if cfg.AppEnv == "production" {
@@ -76,11 +75,14 @@ func main() {
 
 	userRepository := repository.NewUserRepository(gormDB)
 	userService := service.NewUserService(userRepository)
+
 	roomRepository := repository.NewRoomRepository(gormDB)
 	roomService := service.NewRoomService(roomRepository, userService)
+
 	reservationRepository := repository.NewReservationRepository(gormDB)
 	reservationService := service.NewReservationService(roomRepository, reservationRepository)
-	engine := api.NewRouter(log, sqlDB, userService, roomService, reservationService)
+
+	engine := api.NewRouter(log, sqlDB, userService, roomService, reservationService, cfg.JWTSecret)
 
 	server := &http.Server{
 		Addr:              fmt.Sprintf(":%d", cfg.HTTPPort),
@@ -116,7 +118,6 @@ func main() {
 
 	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Error("graceful shutdown failed", zap.Error(err))
 		if closeErr := server.Close(); closeErr != nil {
@@ -124,7 +125,6 @@ func main() {
 		}
 		os.Exit(1)
 	}
-
 	log.Info("server stopped")
 }
 

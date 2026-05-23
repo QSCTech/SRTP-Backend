@@ -10,6 +10,7 @@ import (
 	"github.com/QSCTech/SRTP-Backend/internal/api/gen"
 	"github.com/QSCTech/SRTP-Backend/internal/service"
 	"github.com/QSCTech/SRTP-Backend/models"
+	"github.com/QSCTech/SRTP-Backend/pkg/jwt"
 	"github.com/QSCTech/SRTP-Backend/pkg/response"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -22,10 +23,11 @@ type Handler struct {
 	userService        *service.UserService
 	roomService        *service.RoomService
 	reservationService *service.ReservationService
+	jwtSecret          string
 }
 
-func NewHandler(db *sql.DB, userService *service.UserService, roomService *service.RoomService, reservationService *service.ReservationService) *Handler {
-	return &Handler{db: db, userService: userService, roomService: roomService, reservationService: reservationService}
+func NewHandler(db *sql.DB, userService *service.UserService, roomService *service.RoomService, reservationService *service.ReservationService, jwtSecret string) *Handler {
+	return &Handler{db: db, userService: userService, roomService: roomService, reservationService: reservationService, jwtSecret: jwtSecret}
 }
 
 func (h *Handler) GetHealthz(c *gin.Context) {
@@ -48,7 +50,17 @@ func (h *Handler) LoginWithWechat(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	response.JSON(c, http.StatusOK, buildUserResponse(user))
+
+	tokenString, err := jwt.GenerateToken(user.ID, h.jwtSecret, 7*24*time.Hour)
+	if err != nil {
+		response.Error(c, http.StatusInternalServerError, "failed to generate token")
+		return
+	}
+
+	c.JSON(http.StatusOK, gin.H{
+		"token": tokenString,
+		"user":   buildUserResponse(user),
+	})
 }
 
 func (h *Handler) LogoutCurrentUser(c *gin.Context) {
@@ -161,7 +173,6 @@ func (h *Handler) ListRooms(c *gin.Context, params gen.ListRoomsParams) {
 		date = &params.Date.Time
 	}
 	pageSize := optionalInt32(params.PageSize, 20)
-	// 后端强制上限，防止一次性拉取过多数据
 	if pageSize > 100 {
 		pageSize = 100
 	}
@@ -227,17 +238,17 @@ func (h *Handler) GetRoomById(c *gin.Context, roomId openapi_types.UUID) {
 		response.Error(c, http.StatusInternalServerError, "failed to fetch room")
 		return
 	}
-	if room.Visibility=="private"{
-		currentUser,_:=h.userService.GetCurrent(c.Request.Context())
-		if currentUser==nil{
-			response.Error(c,http.StatusForbidden,"room is private")
-			return 
+	if room.Visibility == "private" {
+		currentUser, _ := h.userService.GetCurrent(c.Request.Context())
+		if currentUser == nil {
+			response.Error(c, http.StatusForbidden, "room is private")
+			return
 		}
-		isOwner:=currentUser.ID==room.OwnerID
-		isMember:=false
-		for _,m:=range members{
-			if m.UserID==currentUser.ID && m.Status=="joined"{
-				isMember=true
+		isOwner := currentUser.ID == room.OwnerID
+		isMember := false
+		for _, m := range members {
+			if m.UserID == currentUser.ID && m.Status == "joined" {
+				isMember = true
 				break
 			}
 		}
@@ -369,7 +380,6 @@ func (h *Handler) ApproveJoinRequest(c *gin.Context, roomId openapi_types.UUID) 
 	}
 	response.JSON(c, http.StatusOK, gen.JoinRequestResponse{RequestId: int64(joinRequest.ID), Status: joinRequest.Status})
 }
-
 
 func (h *Handler) RejectJoinRequest(c *gin.Context, roomId openapi_types.UUID) {
 	var req gen.ReviewJoinRequestRequest
@@ -528,10 +538,9 @@ func (h *Handler) buildRoomDetail(ctx context.Context, room *models.Room, member
 			break
 		}
 	}
-	//控制邀请码
 	var inviteCode *string
-	if isOwner || isMember{
-		inviteCode=stringPtrOrNil(room.InviteCode)
+	if isOwner || isMember {
+		inviteCode = stringPtrOrNil(room.InviteCode)
 	}
 	memberItems := make([]gen.RoomMember, 0, len(members))
 	for _, member := range members {

@@ -1,5 +1,0 @@
-ddddocr
-Pillow
-numpy
-scipy
-pycryptodome
