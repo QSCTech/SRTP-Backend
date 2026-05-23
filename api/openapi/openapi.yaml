@@ -191,33 +191,47 @@ paths:
       parameters:
         - in: query
           name: keyword
+          description: Fuzzy match against room name only.
           schema:
             type: string
         - in: query
           name: sport_type
+          description: Exact match on sport type tag.
           schema:
             type: string
         - in: query
           name: campus
+          description: Exact match on campus name tag.
           schema:
             type: string
         - in: query
           name: date
+          description: Filter rooms starting on the given local date.
           schema:
             type: string
             format: date
         - in: query
           name: time_range
+          description: Filter by start time period in Asia/Shanghai.
           schema:
             type: string
+            enum: [morning, afternoon, evening]
         - in: query
           name: organization
+          description: Exact match on organization tag.
           schema:
             type: string
         - in: query
           name: level
+          description: Exact match on level tag.
           schema:
             type: string
+        - in: query
+          name: sort
+          description: Lobby sort strategy. Defaults to start_time_asc when omitted.
+          schema:
+            type: string
+            enum: [start_time_asc, start_time_desc, created_at_desc]
         - $ref: '#/components/parameters/PageQuery'
         - $ref: '#/components/parameters/PageSizeQuery'
       responses:

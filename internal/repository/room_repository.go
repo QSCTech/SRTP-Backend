@@ -16,6 +16,7 @@ type RoomFilter struct {
 	TimeRange    *string
 	Organization *string
 	Level        *string
+	Sort         RoomSort
 	Page         int
 	PageSize     int
 }
@@ -71,19 +72,19 @@ func (r *RoomRepository) List(ctx context.Context, f RoomFilter) (*RoomListResul
 		Where("status IN ?", []string{"recruiting", "full", "ongoing"})
 
 	if f.Keyword != nil && *f.Keyword != "" {
-		q = q.Where("name ILIKE ? OR campus_name ILIKE ? OR venue_name ILIKE ? OR organization ILIKE ?", "%"+*f.Keyword+"%", "%"+*f.Keyword+"%", "%"+*f.Keyword+"%", "%"+*f.Keyword+"%")
+		q = q.Where("name ILIKE ?", "%"+*f.Keyword+"%")
 	}
 	if f.SportType != nil && *f.SportType != "" {
 		q = q.Where("sport_type = ?", *f.SportType)
 	}
 	if f.Campus != nil && *f.Campus != "" {
-		q = q.Where("campus_name ILIKE ?", "%"+*f.Campus+"%")
+		q = q.Where("campus_name = ?", *f.Campus)
 	}
 	if f.Organization != nil && *f.Organization != "" {
-		q = q.Where("organization ILIKE ?", "%"+*f.Organization+"%")
+		q = q.Where("organization = ?", *f.Organization)
 	}
 	if f.Level != nil && *f.Level != "" {
-		q = q.Where("level_desc ILIKE ?", "%"+*f.Level+"%")
+		q = q.Where("level_desc = ?", *f.Level)
 	}
 	if f.Date != nil && !f.Date.IsZero() {
 		start := time.Date(f.Date.Year(), f.Date.Month(), f.Date.Day(), 0, 0, 0, 0, f.Date.Location())
@@ -115,8 +116,13 @@ func (r *RoomRepository) List(ctx context.Context, f RoomFilter) (*RoomListResul
 		pageSize = 20
 	}
 
+	sort := f.Sort
+	if sort == "" {
+		sort = RoomSortStartTimeAsc
+	}
+
 	var items []models.Room
-	if err := q.Order("start_time ASC").Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
+	if err := sort.Apply(q).Offset((page - 1) * pageSize).Limit(pageSize).Find(&items).Error; err != nil {
 		return nil, err
 	}
 
