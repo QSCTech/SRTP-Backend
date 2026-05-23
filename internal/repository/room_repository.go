@@ -237,6 +237,28 @@ func (r *RoomRepository) CountPendingJoinRequestsByUser(ctx context.Context, use
 	return count, nil
 }
 
+func (r *RoomRepository) DeleteMember(ctx context.Context, roomID, userID uint) error {
+	return r.db.WithContext(ctx).
+		Where("room_id = ? AND user_id = ?", roomID, userID).
+		Delete(&models.RoomMember{}).Error
+}
+
+func (r *RoomRepository) GetPendingJoinRequestByRoomAndUser(ctx context.Context, roomID, userID uint) (*models.JoinRequest, error) {
+	var req models.JoinRequest
+	if err := r.db.WithContext(ctx).Where("room_id = ? AND user_id = ? AND status = ?", roomID, userID, "pending").First(&req).Error; err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+func (r *RoomRepository) GetJoinRequestsByRoomID(ctx context.Context, roomID uint) ([]models.JoinRequest, error) {
+	var requests []models.JoinRequest
+	if err := r.db.WithContext(ctx).Preload("User").Where("room_id = ?", roomID).Order("created_at DESC").Find(&requests).Error; err != nil {
+		return nil, err
+	}
+	return requests, nil
+}
+
 /*为了避免多次查询数据库*/
 func (r *RoomRepository) CountMembersByRoomIDs(ctx context.Context, roomIDs []uint) (map[uint]int64, error) {
 	var results []struct {
