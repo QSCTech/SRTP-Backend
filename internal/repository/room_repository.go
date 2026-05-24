@@ -32,6 +32,19 @@ func (r *RoomRepository) Create(ctx context.Context, room *models.Room) error {
 	return r.db.WithContext(ctx).Create(room).Error
 }
 
+func (r *RoomRepository) CreateRoomWithOwner(ctx context.Context, room *models.Room, ownerMember *models.RoomMember) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(room).Error; err != nil {
+			return err
+		}
+		ownerMember.RoomID = room.ID
+		if err := tx.Create(ownerMember).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
 func (r *RoomRepository) Update(ctx context.Context, room *models.Room) error {
 	return r.db.WithContext(ctx).Save(room).Error
 }

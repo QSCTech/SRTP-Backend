@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/QSCTech/SRTP-Backend/internal/repository"
@@ -10,6 +11,13 @@ import (
 	"github.com/QSCTech/SRTP-Backend/pkg/utils"
 	"gorm.io/gorm"
 )
+
+type contextKey string
+
+const MockUserIDKey contextKey = "mock_user_id"
+
+// Part 3 (3组) - 登录与用户资料(临时补充实现，待3组替换):
+// Create, GetByID, GetCurrent, UpdateCurrentProfile, LoginOrCreate
 
 type UserService struct {
 	repo *repository.UserRepository
@@ -50,6 +58,20 @@ func (s *UserService) GetByID(ctx context.Context, id uint) (*models.User, error
 }
 
 func (s *UserService) GetCurrent(ctx context.Context) (*models.User, error) {
+	if mockID, ok := ctx.Value(MockUserIDKey).(string); ok && mockID != "" {
+		id, err := strconv.ParseUint(mockID, 10, 64)
+		if err != nil {
+			return nil, fmt.Errorf("invalid X-Mock-User-ID: %s", mockID)
+		}
+		user, err := s.repo.GetByID(ctx, uint(id))
+		if err != nil {
+			if err == gorm.ErrRecordNotFound {
+				return nil, fmt.Errorf("mock user %d not found", id)
+			}
+			return nil, err
+		}
+		return user, nil
+	}
 	user, err := s.repo.GetFirst(ctx)
 	if err != nil {
 		if err == gorm.ErrRecordNotFound {

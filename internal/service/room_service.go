@@ -66,6 +66,15 @@ type UpdateRoomInput struct {
 	Description     *string
 }
 
+// =============================================================================
+// Part 5 (5组) - 房间创建与房间管理：Create, Update, Close
+// Part 6 (6组) - 成员加入与房主审批(临时补充实现，待6组替换): JoinByCode, JoinDirectly,
+//               CreateJoinRequest, ApproveJoinRequest, RejectJoinRequest,
+//               InviteMember, RemoveMember, joinRoom
+// Part 3 (3组) - 登录与用户资料(临时补充实现，待3组替换): ListMineCreated,
+//               ListMineJoined, GetMyStats
+// =============================================================================
+
 type JoinRoomByCodeInput struct {
 	BuddyCode string
 }
@@ -223,6 +232,12 @@ func (s *RoomService) Create(ctx context.Context, input CreateRoomInput) (*model
 	if strings.TrimSpace(input.JoinMode) == "" {
 		return nil, fmt.Errorf("join_mode is required")
 	}
+	if !isValidVisibility(input.Visibility) {
+		return nil, fmt.Errorf("visibility must be 'public' or 'private'")
+	}
+	if !isValidJoinMode(input.JoinMode) {
+		return nil, fmt.Errorf("join_mode must be 'direct', 'approval', or 'invite_only'")
+	}
 	if input.StartTime.IsZero() {
 		return nil, fmt.Errorf("start_time is required")
 	}
@@ -274,13 +289,12 @@ func (s *RoomService) Create(ctx context.Context, input CreateRoomInput) (*model
 		room.ReservationStatus = "pending"
 	}
 
-	if err := s.repo.Create(ctx, room); err != nil {
-		return nil, err
+	if room.MemberLimit != nil && *room.MemberLimit <= 0 {
+		return nil, fmt.Errorf("member_limit must be greater than 0")
 	}
 
 	now := time.Now()
-	if err := s.repo.CreateMember(ctx, &models.RoomMember{
-		RoomID:    room.ID,
+	if err := s.repo.CreateRoomWithOwner(ctx, room, &models.RoomMember{
 		UserID:    currentUser.ID,
 		Role:      "owner",
 		Status:    "joined",
@@ -290,6 +304,7 @@ func (s *RoomService) Create(ctx context.Context, input CreateRoomInput) (*model
 	}); err != nil {
 		return nil, err
 	}
+	tryMarkFull(ctx, s.repo, room)
 
 	room.Owner = *currentUser
 	return room, nil
@@ -325,9 +340,15 @@ func (s *RoomService) Update(ctx context.Context, roomID uint, input UpdateRoomI
 		room.Name = name
 	}
 	if input.Visibility != nil {
+		if !isValidVisibility(*input.Visibility) {
+			return nil, fmt.Errorf("visibility must be 'public' or 'private'")
+		}
 		room.Visibility = strings.TrimSpace(*input.Visibility)
 	}
 	if input.JoinMode != nil {
+		if !isValidJoinMode(*input.JoinMode) {
+			return nil, fmt.Errorf("join_mode must be 'direct', 'approval', or 'invite_only'")
+		}
 		room.JoinMode = strings.TrimSpace(*input.JoinMode)
 	}
 	if input.StartTime != nil {
@@ -340,6 +361,8 @@ func (s *RoomService) Update(ctx context.Context, roomID uint, input UpdateRoomI
 		room.NeedReservation = *input.NeedReservation
 		if *input.NeedReservation && room.ReservationStatus == "not_required" {
 			room.ReservationStatus = "pending"
+		} else if !*input.NeedReservation {
+			room.ReservationStatus = "not_required"
 		}
 	}
 	if input.GenderRule != nil {
@@ -347,6 +370,16 @@ func (s *RoomService) Update(ctx context.Context, roomID uint, input UpdateRoomI
 	}
 	if input.MemberLimit != nil {
 		value := int(*input.MemberLimit)
+		if value <= 0 {
+			return nil, fmt.Errorf("member_limit must be greater than 0")
+		}
+		count, err := s.repo.CountActiveMembers(ctx, roomID)
+		if err != nil {
+			return nil, err
+		}
+		if value < int(count) {
+			return nil, fmt.Errorf("member_limit cannot be less than current member count (%d)", count)
+		}
 		room.MemberLimit = &value
 	}
 	if input.Organization != nil {
@@ -414,7 +447,7 @@ func (s *RoomService) JoinByCode(ctx context.Context, input JoinRoomByCodeInput)
 		return nil, err
 	}
 
-	return s.joinRoom(ctx, room)
+	return s.joinRoom(ctx, room, true)
 }
 
 func (s *RoomService) JoinDirectly(ctx context.Context, roomID uint) (*JoinRoomOutput, error) {
@@ -426,7 +459,7 @@ func (s *RoomService) JoinDirectly(ctx context.Context, roomID uint) (*JoinRoomO
 		return nil, err
 	}
 
-	return s.joinRoom(ctx, room)
+	return s.joinRoom(ctx, room, false)
 }
 
 func (s *RoomService) CreateJoinRequest(ctx context.Context, roomID uint, input CreateJoinRequestInput) (*models.JoinRequest, error) {
@@ -542,6 +575,7 @@ func (s *RoomService) ApproveJoinRequest(ctx context.Context, roomID uint, input
 	}); err != nil {
 		return nil, err
 	}
+	tryMarkFull(ctx, s.repo, room)
 
 	if err := s.repo.UpdateJoinRequest(ctx, req); err != nil {
 		return nil, err
@@ -656,6 +690,7 @@ func (s *RoomService) InviteMember(ctx context.Context, roomID uint, input Invit
 	if err := s.repo.CreateMember(ctx, member); err != nil {
 		return nil, err
 	}
+	tryMarkFull(ctx, s.repo, room)
 
 	member.User = *targetUser
 	return member, nil
@@ -806,7 +841,7 @@ func (s *RoomService) GetMyStats(ctx context.Context) (*UserStatsOutput, error) 
 	}, nil
 }
 
-func (s *RoomService) joinRoom(ctx context.Context, room *models.Room) (*JoinRoomOutput, error) {
+func (s *RoomService) joinRoom(ctx context.Context, room *models.Room, bypassJoinMode bool) (*JoinRoomOutput, error) {
 	currentUser, err := s.userService.GetCurrent(ctx)
 	if err != nil {
 		return nil, err
@@ -821,6 +856,10 @@ func (s *RoomService) joinRoom(ctx context.Context, room *models.Room) (*JoinRoo
 
 	if room.Status != "recruiting" {
 		return nil, fmt.Errorf("room is not recruiting")
+	}
+
+	if room.JoinMode == "invite_only" && !bypassJoinMode {
+		return nil, fmt.Errorf("room is invite-only, please use invite code")
 	}
 
 	if room.JoinMode == "approval" {
@@ -866,11 +905,44 @@ func (s *RoomService) joinRoom(ctx context.Context, room *models.Room) (*JoinRoo
 	}
 
 	joinedStatus := "joined"
+	tryMarkFull(ctx, s.repo, room)
 	return &JoinRoomOutput{RoomID: room.ID, RoomPublicID: room.PublicID, JoinResult: "joined", MemberStatus: &joinedStatus}, nil
 }
 
 func generateInviteCode() string {
 	return fmt.Sprintf("ROOM%06d", time.Now().UnixNano()%1000000)
+}
+
+func tryMarkFull(ctx context.Context, repo *repository.RoomRepository, room *models.Room) {
+	if room.MemberLimit == nil {
+		return
+	}
+	count, err := repo.CountActiveMembers(ctx, room.ID)
+	if err != nil {
+		return
+	}
+	if count >= int64(*room.MemberLimit) && room.Status == "recruiting" {
+		room.Status = "full"
+		_ = repo.Update(ctx, room)
+	}
+}
+
+func isValidVisibility(v string) bool {
+	switch strings.TrimSpace(v) {
+	case "public", "private":
+		return true
+	default:
+		return false
+	}
+}
+
+func isValidJoinMode(m string) bool {
+	switch strings.TrimSpace(m) {
+	case "direct", "approval", "invite_only":
+		return true
+	default:
+		return false
+	}
 }
 
 func isBuddyCodeSport(sportType string) bool {
