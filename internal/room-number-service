@@ -1,0 +1,255 @@
+package group6
+
+import (
+	"context"
+	"errors"
+	"fmt"
+	"time"
+
+	"github.com/QSCTech/SRTP-Backend/internal/repository"
+	"github.com/QSCTech/SRTP-Backend/models"
+	"gorm.io/gorm"
+)
+
+type RoomMemberService struct {
+	repo *repository.RoomRepository
+	db   *gorm.DB
+}
+
+func NewRoomMemberService(repo *repository.RoomRepository, db *gorm.DB) *RoomMemberService {
+	return &RoomMemberService{repo: repo, db: db}
+}
+
+// JoinDirectly 直接加入 (POST /rooms/{id}/join)
+func (s *RoomMemberService) JoinDirectly(ctx context.Context, roomID uint, userID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		room, err := s.repo.GetByID(ctx, roomID)
+		if err != nil {
+			return err
+		}
+
+		if room.JoinMode != "direct" {
+			return errors.New("该房间需要审批才能加入")
+		}
+
+		if err := s.validateJoinability(ctx, tx, room, userID); err != nil {
+			return err
+		}
+
+		now := time.Now()
+		member := &models.RoomMember{
+			RoomID:   roomID,
+			UserID:   userID,
+			Role:     "member",
+			Status:   "joined",
+			JoinedAt: &now,
+		}
+
+		if err := tx.Create(member).Error; err != nil {
+			return err
+		}
+
+		return s.checkSportMinRequirement(ctx, tx, room)
+	})
+}
+
+// ApplyToJoin 申请加入 (POST /rooms/{id}/apply)
+func (s *RoomMemberService) ApplyToJoin(ctx context.Context, roomID uint, userID uint, message string) error {
+	room, err := s.repo.GetByID(ctx, roomID)
+	if err != nil {
+		return err
+	}
+
+	if room.JoinMode != "approval" {
+		return errors.New("该房间支持直接加入，请调用加入接口")
+	}
+
+	if err := s.validateJoinability(ctx, s.db, room, userID); err != nil {
+		return err
+	}
+
+	// 校验是否已有待审批申请
+	var count int64
+	s.db.Model(&models.JoinRequest{}).Where("room_id = ? AND user_id = ? AND status = ?", roomID, userID, "pending").Count(&count)
+	if count > 0 {
+		return errors.New("已有待处理的申请，请勿重复操作")
+	}
+
+	req := &models.JoinRequest{
+		RoomID:  roomID,
+		UserID:  userID,
+		Status:  "pending",
+		Message: message,
+	}
+	return s.db.Create(req).Error
+}
+
+// JoinByCode 通过邀请码加入 (POST /rooms/join-by-code)
+func (s *RoomMemberService) JoinByCode(ctx context.Context, code string, userID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		var room models.Room
+		if err := tx.Where("invite_code = ?", code).First(&room).Error; err != nil {
+			return errors.New("邀请码无效")
+		}
+
+		if err := s.validateJoinability(ctx, tx, &room, userID); err != nil {
+			return err
+		}
+
+		now := time.Now()
+		member := &models.RoomMember{
+			RoomID:   room.ID,
+			UserID:   userID,
+			Role:     "member",
+			Status:   "joined",
+			JoinedAt: &now,
+		}
+		return tx.Create(member).Error
+	})
+}
+
+// ApproveRequest 审批通过 (POST /rooms/{id}/approve)
+func (s *RoomMemberService) ApproveRequest(ctx context.Context, roomID uint, requestID uint, ownerID uint) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		room, err := s.repo.GetByID(ctx, roomID)
+		if err != nil {
+			return err
+		}
+		if room.OwnerID != ownerID {
+			return errors.New("无权审批：仅房主可操作")
+		}
+
+		var req models.JoinRequest
+		if err := tx.First(&req, requestID).Error; err != nil {
+			return errors.New("申请记录未找到")
+		}
+		if req.RoomID != roomID || req.Status != "pending" {
+			return errors.New("非法申请记录")
+		}
+
+		// 更新申请状态
+		now := time.Now()
+		req.Status = "approved"
+		req.ReviewedBy = &ownerID
+		req.ReviewedAt = &now
+		if err := tx.Save(&req).Error; err != nil {
+			return err
+		}
+
+		// 添加成员
+		member := &models.RoomMember{
+			RoomID:   roomID,
+			UserID:   req.UserID,
+			Role:     "member",
+			Status:   "joined",
+			JoinedAt: &now,
+		}
+		if err := tx.Create(member).Error; err != nil {
+			return err
+		}
+
+		return s.checkSportMinRequirement(ctx, tx, room)
+	})
+}
+
+// RejectRequest 拒绝申请 (POST /rooms/{id}/reject)
+func (s *RoomMemberService) RejectRequest(ctx context.Context, roomID uint, requestID uint, ownerID uint) error {
+	room, err := s.repo.GetByID(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if room.OwnerID != ownerID {
+		return errors.New("权限不足")
+	}
+
+	now := time.Now()
+	return s.db.Model(&models.JoinRequest{}).
+		Where("id = ? AND room_id = ? AND status = ?", requestID, roomID, "pending").
+		Updates(map[string]interface{}{
+			"status":      "rejected",
+			"reviewed_by": ownerID,
+			"reviewed_at": now,
+		}).Error
+}
+
+// InviteMember 邀请成员 (POST /rooms/{id}/invite)
+func (s *RoomMemberService) InviteMember(ctx context.Context, roomID uint, targetUserID uint, ownerID uint) error {
+	room, err := s.repo.GetByID(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if room.OwnerID != ownerID {
+		return errors.New("仅房主可发起邀请")
+	}
+
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := s.validateJoinability(ctx, tx, room, targetUserID); err != nil {
+			return err
+		}
+
+		now := time.Now()
+		member := &models.RoomMember{
+			RoomID:   roomID,
+			UserID:   targetUserID,
+			Role:     "member",
+			Status:   "joined",
+			JoinedAt: &now,
+		}
+		return tx.Create(member).Error
+	})
+}
+
+// RemoveMember 移除成员 (POST /rooms/{id}/members/{userId}/remove)
+func (s *RoomMemberService) RemoveMember(ctx context.Context, roomID uint, targetUserID uint, ownerID uint) error {
+	if targetUserID == ownerID {
+		return errors.New("房主不能移除自己")
+	}
+
+	room, err := s.repo.GetByID(ctx, roomID)
+	if err != nil {
+		return err
+	}
+	if room.OwnerID != ownerID {
+		return errors.New("无权操作")
+	}
+
+	return s.db.Where("room_id = ? AND user_id = ?", roomID, targetUserID).Delete(&models.RoomMember{}).Error
+}
+
+// 内部校验逻辑
+func (s *RoomMemberService) validateJoinability(ctx context.Context, tx *gorm.DB, room *models.Room, userID uint) error {
+	if room.Status != "recruiting" {
+		return fmt.Errorf("房间当前状态为 %s，无法加入", room.Status)
+	}
+
+	var count int64
+	tx.Model(&models.RoomMember{}).Where("room_id = ? AND status = ?", room.ID, "joined").Count(&count)
+	if room.MemberLimit != nil && int(count) >= int(*room.MemberLimit) {
+		return errors.New("房间人数已满")
+	}
+
+	var memberCount int64
+	tx.Model(&models.RoomMember{}).Where("room_id = ? AND user_id = ? AND status = ?", room.ID, userID, "joined").Count(&memberCount)
+	if memberCount > 0 {
+		return errors.New("已经是房间成员")
+	}
+
+	return nil
+}
+
+// 球类人数前置校验
+func (s *RoomMemberService) checkSportMinRequirement(ctx context.Context, tx *gorm.DB, room *models.Room) error {
+	if room.SportType != "badminton" && room.SportType != "tennis" {
+		return nil
+	}
+
+	var count int64
+	tx.Model(&models.RoomMember{}).Where("room_id = ? AND status = ?", room.ID, "joined").Count(&count)
+	
+	// 如果达到最低人数（例如2人），可以触发房间状态或预约逻辑的更新
+	// 这里可以根据第7组的需求，更新房间的某个标识位
+	if count >= 2 && room.ReservationStatus == "not_required" {
+		// 逻辑预留
+	}
+	return nil
+}
