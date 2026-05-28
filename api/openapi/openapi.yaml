@@ -913,7 +913,7 @@ components:
           type: string
         description:
           type: string
-        buddy_code:
+        invite_code:
           type: string
         owner:
           $ref: '#/components/schemas/RoomOwner'
@@ -1012,9 +1012,9 @@ components:
           maxLength: 500
     JoinRoomByCodeRequest:
       type: object
-      required: [buddy_code]
+      required: [invite_code]
       properties:
-        buddy_code:
+        invite_code:
           type: string
           minLength: 1
           maxLength: 16
