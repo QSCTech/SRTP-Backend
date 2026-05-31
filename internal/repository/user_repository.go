@@ -54,3 +54,16 @@ func (r *UserRepository) GetFirst(ctx context.Context) (*models.User, error) {
 func (r *UserRepository) Update(ctx context.Context, user *models.User) error {
 	return r.db.WithContext(ctx).Save(user).Error
 }
+
+func (r *UserRepository) CreateProfileAudit(ctx context.Context, audit *models.UserProfileAudit) error {
+	return r.db.WithContext(ctx).Create(audit).Error
+}
+
+func (r *UserRepository) UpdateProfileWithAudit(ctx context.Context, user *models.User, audit *models.UserProfileAudit) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Save(user).Error; err != nil {
+			return err
+		}
+		return tx.Create(audit).Error
+	})
+}
