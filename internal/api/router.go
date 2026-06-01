@@ -15,7 +15,9 @@ func NewRouter(log *zap.Logger, db *sql.DB, userService *service.UserService, ro
 	engine.Use(middleware.Zap(log), middleware.Recovery(log))
 
 	handler := NewHandler(db, userService, roomService, reservationService)
-	gen.RegisterHandlers(engine, handler)
+	gen.RegisterHandlersWithOptions(engine, handler, gen.GinServerOptions{
+		Middlewares: []gen.MiddlewareFunc{gen.MiddlewareFunc(middleware.AuthByRoute())},
+	})
 
 	return engine
 }
