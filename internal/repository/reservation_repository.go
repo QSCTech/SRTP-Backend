@@ -2,6 +2,8 @@ package repository
 
 import (
 	"context"
+	"fmt"
+	"time"
 
 	"github.com/QSCTech/SRTP-Backend/models"
 	"gorm.io/gorm"
@@ -45,4 +47,45 @@ func (r *ReservationRepository) GetByPublicID(ctx context.Context, publicID stri
 		return nil, err
 	}
 	return &reservation, nil
+}
+
+// Update 全量保存预约记录（用于补全 slot 上下文或回写执行结果）。
+func (r *ReservationRepository) Update(ctx context.Context, reservation *models.RoomReservation) error {
+	return r.db.WithContext(ctx).Save(reservation).Error
+}
+
+// ListDueScheduled 返回所有 schedule_status=scheduled 或 failed（可重试）且 reserve_open_at <= now 的计划，
+// 供 materialize 调度器判断哪些计划已到开放时间。failed 状态的计划每小时也会被重试，以处理
+// 首次执行时部分场馆预约窗口尚未开放的情况。
+func (r *ReservationRepository) ListDueScheduled(ctx context.Context, now time.Time) ([]*models.RoomReservation, error) {
+	var reservations []*models.RoomReservation
+	err := r.db.WithContext(ctx).
+		Where("reservation_status IN ? AND reserve_open_at <= ?", []string{"scheduled", "failed"}, now).
+		Find(&reservations).Error
+	return reservations, err
+}
+
+// MarkExpiredFailed 将 status=failed 且预约日期早于 beforeDate 的计划标记为 expired，
+// 防止调度器继续重试已无法执行的过期计划。
+func (r *ReservationRepository) MarkExpiredFailed(ctx context.Context, beforeDate string) (int64, error) {
+	result := r.db.WithContext(ctx).Model(&models.RoomReservation{}).
+		Where("reservation_status = ? AND reservation_date < ?", "failed", beforeDate).
+		Update("reservation_status", "expired")
+	return result.RowsAffected, result.Error
+}
+
+// AtomicTransitionStatus 原子地将记录从 fromStatus 切换到 toStatus，防止并发双触发。
+// 使用 public_id 定位记录，避免整数 ID 在内部流转。
+// 返回 false 表示记录已被其他执行者抢占，调用方应直接放弃本次执行。
+func (r *ReservationRepository) AtomicTransitionStatus(ctx context.Context, publicID, fromStatus, toStatus string) (bool, error) {
+	result := r.db.WithContext(ctx).Model(&models.RoomReservation{}).
+		Where("public_id = ? AND reservation_status = ?", publicID, fromStatus).
+		Update("reservation_status", toStatus)
+	if result.Error != nil {
+		return false, result.Error
+	}
+	if result.RowsAffected == 0 {
+		return false, fmt.Errorf("reservation %q not in status %q, may already be processing", publicID, fromStatus)
+	}
+	return true, nil
 }

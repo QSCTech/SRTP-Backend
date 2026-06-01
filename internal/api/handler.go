@@ -439,47 +439,202 @@ func (h *Handler) ListReservationSlots(c *gin.Context, params gen.ListReservatio
 	}
 	resp := gen.ReservationSlotListResponse{Items: make([]gen.ReservationSlot, 0, len(items))}
 	for _, item := range items {
-		resp.Items = append(resp.Items, gen.ReservationSlot{SlotKey: item.SlotKey, StartTime: item.StartTime, EndTime: item.EndTime, Available: item.Available, SpaceName: item.SpaceName})
+		s := gen.ReservationSlot{
+			SlotKey:    item.SlotKey,
+			StartTime:  item.StartTime,
+			EndTime:    item.EndTime,
+			Available:  item.Available,
+			CampusName: &item.CampusName,
+			VenueName:  &item.VenueName,
+			SpaceName:  item.SpaceName,
+		}
+		if item.VenueID != nil {
+			v := int64(*item.VenueID)
+			s.VenueId = &v
+		}
+		if item.VenueSiteID != 0 {
+			v := int64(item.VenueSiteID)
+			s.VenueSiteId = &v
+		}
+		if item.SpaceID != 0 {
+			v := int64(item.SpaceID)
+			s.SpaceId = &v
+		}
+		if item.TimeID != 0 {
+			v := int64(item.TimeID)
+			s.TimeId = &v
+		}
+		if item.Token != "" {
+			s.Token = &item.Token
+		}
+		if item.WeekStart != "" {
+			if d, parseErr := time.Parse("2006-01-02", item.WeekStart); parseErr == nil {
+				dt := openapi_types.Date{Time: d}
+				s.WeekStartDate = &dt
+			}
+		}
+		resp.Items = append(resp.Items, s)
 	}
 	response.JSON(c, http.StatusOK, resp)
 }
 
-func (h *Handler) PreviewRoomReservation(c *gin.Context, roomId openapi_types.UUID) {
+func (h *Handler) PreviewRoomReservation(c *gin.Context, roomId gen.RoomPublicIdPath) {
 	var req gen.ReservationSubmitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	existingRoom, _, err := h.roomService.GetByPublicID(c.Request.Context(), roomId.String())
-	if err != nil {
+	room, _, roomErr := h.roomService.GetByPublicID(c.Request.Context(), roomId.String())
+	if roomErr != nil {
 		response.Error(c, http.StatusNotFound, "room not found")
 		return
 	}
-	preview, err := h.reservationService.Preview(c.Request.Context(), buildReservationPreviewInput(existingRoom.ID, req))
+	preview, err := h.reservationService.Preview(c.Request.Context(), buildReservationPreviewInput(room.ID, req))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	response.JSON(c, http.StatusOK, buildReservationPreviewResponse(preview, existingRoom.PublicID))
+	response.JSON(c, http.StatusOK, buildReservationPreviewResponse(preview, room.PublicID))
 }
 
-func (h *Handler) SubmitRoomReservation(c *gin.Context, roomId openapi_types.UUID) {
+func (h *Handler) SubmitRoomReservation(c *gin.Context, roomId gen.RoomPublicIdPath) {
 	var req gen.ReservationSubmitRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.Error(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	existingRoom, _, err := h.roomService.GetByPublicID(c.Request.Context(), roomId.String())
-	if err != nil {
+	room, _, roomErr := h.roomService.GetByPublicID(c.Request.Context(), roomId.String())
+	if roomErr != nil {
 		response.Error(c, http.StatusNotFound, "room not found")
 		return
 	}
-	reservation, err := h.reservationService.Submit(c.Request.Context(), buildReservationPreviewInput(existingRoom.ID, req))
+	result, err := h.reservationService.SubmitOrPlan(c.Request.Context(), buildReservationPreviewInput(room.ID, req))
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
-	response.JSON(c, http.StatusOK, buildReservationRecordResponse(reservation, existingRoom.PublicID))
+	response.JSON(c, http.StatusOK, gen.ReservationSubmitResult{
+		Planned:     result.Planned,
+		Reservation: buildReservationRecordResponse(result.Record, room.PublicID),
+	})
+}
+
+func (h *Handler) ListReservationTemplates(c *gin.Context, params gen.ListReservationTemplatesParams) {
+	out, err := h.reservationService.ListTemplates(c.Request.Context(), params.SportType, params.CampusName, params.VenueName)
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	slots := make([]gen.ReservationTemplateSlot, 0, len(out.Slots))
+	for _, ts := range out.Slots {
+		s := gen.ReservationTemplateSlot{
+			SpaceId:      uint64ToInt64(ts.SpaceID),
+			SpaceName:    ts.SpaceName,
+			CampusName:   stringPtr(ts.CampusName),
+			VenueName:    stringPtr(ts.VenueName),
+			StartTime:    ts.StartTime,
+			EndTime:      ts.EndTime,
+			DisplayLabel: ts.DisplayLabel,
+		}
+		if ts.VenueID != nil {
+			v := int64(*ts.VenueID)
+			s.VenueId = &v
+		}
+		if ts.VenueSiteID != 0 {
+			v := int64(ts.VenueSiteID)
+			s.VenueSiteId = &v
+		}
+		slots = append(slots, s)
+	}
+	venueSiteID := int64(0)
+	if out.VenueSiteID != nil {
+		venueSiteID = int64(*out.VenueSiteID)
+	}
+	response.JSON(c, http.StatusOK, gen.ReservationTemplateResponse{
+		SportType:   out.SportType,
+		CampusName:  out.CampusName,
+		VenueName:   out.VenueName,
+		VenueId:     uintPtrToInt64Ptr(out.VenueID),
+		VenueSiteId: venueSiteID,
+		Slots:       slots,
+	})
+}
+
+func (h *Handler) CreateRoomReservationPlan(c *gin.Context, roomId gen.RoomPublicIdPath) {
+	var req gen.ReservationPlanRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	room, _, roomErr := h.roomService.GetByPublicID(c.Request.Context(), roomId.String())
+	if roomErr != nil {
+		response.Error(c, http.StatusNotFound, "room not found")
+		return
+	}
+	planSlots := make([]service.PlanSlotSelection, 0, len(req.PlanSlots))
+	for _, ps := range req.PlanSlots {
+		planSlots = append(planSlots, service.PlanSlotSelection{
+			CampusName:  ps.CampusName,
+			VenueName:   ps.VenueName,
+			VenueID:     int64PtrToUintPtr(ps.VenueId),
+			VenueSiteID: uint64PtrToUintPtr(ps.VenueSiteId),
+			SpaceID:     uint(ps.SpaceId),
+			SpaceName:   ps.SpaceName,
+			StartTime:   ps.StartTime,
+			EndTime:     ps.EndTime,
+		})
+	}
+	reservation, err := h.reservationService.CreatePlan(c.Request.Context(), service.ReservationPlanInput{
+		RoomID:          room.ID,
+		SportType:       req.SportType,
+		ReservationDate: req.ReservationDate.String(),
+		BuddyCode:       req.BuddyCode,
+		PlanSlots:       planSlots,
+	})
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	response.JSON(c, http.StatusOK, buildReservationRecordResponse(reservation, room.PublicID))
+}
+
+func (h *Handler) TriggerReservationMaterialize(c *gin.Context) {
+	var req gen.ReservationMaterializeRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	dryRun := req.DryRun != nil && *req.DryRun
+	result := h.reservationService.MaterializePlans(c.Request.Context(), dryRun)
+	resp := gen.ReservationMaterializeResult{
+		Total:     result.Total,
+		Succeeded: result.Succeeded,
+		Failed:    result.Failed,
+		Expired:   result.Expired,
+	}
+	if len(result.Errors) > 0 {
+		resp.Errors = &result.Errors
+	}
+	response.JSON(c, http.StatusOK, resp)
+}
+
+func (h *Handler) TriggerReservation(c *gin.Context) {
+	var req gen.ReservationTriggerRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.Error(c, http.StatusBadRequest, "invalid request body")
+		return
+	}
+	reservation, err := h.reservationService.TriggerReservation(c.Request.Context(), req.ReservationPublicId.String())
+	if err != nil {
+		response.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+	room, _, roomErr := h.roomService.GetByID(c.Request.Context(), reservation.RoomID)
+	if roomErr != nil {
+		response.Error(c, http.StatusInternalServerError, "failed to fetch room")
+		return
+	}
+	response.JSON(c, http.StatusOK, buildReservationRecordResponse(reservation, room.PublicID))
 }
 
 func buildUserResponse(user *models.User) gen.UserResponse {
@@ -573,39 +728,75 @@ func buildJoinRoomResult(result *service.JoinRoomOutput) gen.JoinRoomResult {
 }
 
 func buildReservationPreviewInput(roomID uint, req gen.ReservationSubmitRequest) service.ReservationPreviewInput {
+	var slots []service.SlotSelection
+	for _, s := range req.Slots {
+		var weekStart string
+		if s.WeekStartDate != nil {
+			weekStart = s.WeekStartDate.String()
+		}
+		slots = append(slots, service.SlotSelection{
+			CampusName:  s.CampusName,
+			VenueName:   s.VenueName,
+			VenueID:     int64PtrToUintPtr(s.VenueId),
+			VenueSiteID: uint(s.VenueSiteId),
+			SpaceID:     uint(s.SpaceId),
+			SpaceName:   s.SpaceName,
+			StartTime:   s.StartTime,
+			EndTime:     s.EndTime,
+			TimeID:      uint(s.TimeId),
+			Token:       s.Token,
+			WeekStart:   weekStart,
+		})
+	}
 	return service.ReservationPreviewInput{
 		RoomID:          roomID,
 		SportType:       req.SportType,
-		CampusName:      req.CampusName,
-		VenueName:       req.VenueName,
 		ReservationDate: req.ReservationDate.String(),
-		StartTime:       req.StartTime,
-		EndTime:         req.EndTime,
 		BuddyCode:       req.BuddyCode,
-		VenueID:         int64PtrToUintPtr(req.VenueId),
-		VenueSiteID:     int64PtrToUintPtr(req.VenueSiteId),
-		SpaceID:         int64PtrToUintPtr(req.SpaceId),
-		SpaceName:       req.SpaceName,
+		Slots:           slots,
 	}
 }
 
+func derefSlotSlice(slots *[]gen.ReservationSlotSelection) []gen.ReservationSlotSelection {
+	if slots == nil {
+		return nil
+	}
+	return *slots
+}
+
 func buildReservationPreviewResponse(preview *service.ReservationPreviewOutput, roomPublicID string) gen.ReservationPreviewResponse {
+	items := make([]gen.ReservationPreviewItem, 0, len(preview.Slots))
+	for _, s := range preview.Slots {
+		item := gen.ReservationPreviewItem{
+			CampusName:  s.Slot.CampusName,
+			VenueName:   s.Slot.VenueName,
+			VenueId:     uintPtrToInt64Ptr(s.Slot.VenueID),
+			VenueSiteId: int64(s.Slot.VenueSiteID),
+			SpaceId:     int64(s.Slot.SpaceID),
+			SpaceName:   s.Slot.SpaceName,
+			StartTime:   s.Slot.StartTime,
+			EndTime:     s.Slot.EndTime,
+			TimeId:      int64(s.Slot.TimeID),
+			Token:       s.Slot.Token,
+			Available:   s.Available,
+		}
+		if s.Error != "" {
+			item.Error = &s.Error
+		}
+		if s.Slot.WeekStart != "" {
+			d := openapi_types.Date{Time: mustParseDate(s.Slot.WeekStart)}
+			item.WeekStartDate = &d
+		}
+		items = append(items, item)
+	}
 	return gen.ReservationPreviewResponse{
-		RoomId:            int64(preview.RoomID),
-		RoomPublicId:      mustParseUUID(roomPublicID),
-		Provider:          preview.Provider,
-		ReservationStatus: preview.ReservationStatus,
-		SportType:         preview.SportType,
-		CampusName:        preview.CampusName,
-		VenueName:         preview.VenueName,
-		ReservationDate:   openapi_types.Date{Time: mustParseDate(preview.ReservationDate)},
-		StartTime:         preview.StartTime,
-		EndTime:           preview.EndTime,
-		BuddyCode:         preview.BuddyCode,
-		VenueId:           uintPtrToInt64Ptr(preview.VenueID),
-		VenueSiteId:       uintPtrToInt64Ptr(preview.VenueSiteID),
-		SpaceId:           uintPtrToInt64Ptr(preview.SpaceID),
-		SpaceName:         preview.SpaceName,
+		RoomId:          int64(preview.RoomID),
+		RoomPublicId:    mustParseUUID(roomPublicID),
+		Provider:        preview.Provider,
+		SportType:       preview.SportType,
+		ReservationDate: openapi_types.Date{Time: mustParseDate(preview.ReservationDate)},
+		BuddyCode:       preview.BuddyCode,
+		Slots:           items,
 	}
 }
 
@@ -692,6 +883,18 @@ func uintPtrToInt64Ptr(value *uint) *int64 {
 		return nil
 	}
 	v := int64(*value)
+	return &v
+}
+
+func uint64ToInt64(v uint) int64 {
+	return int64(v)
+}
+
+func uint64PtrToUintPtr(value *int64) *uint {
+	if value == nil {
+		return nil
+	}
+	v := uint(*value)
 	return &v
 }
 
