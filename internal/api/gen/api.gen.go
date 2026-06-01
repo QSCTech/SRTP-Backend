@@ -360,6 +360,7 @@ type ListRoomsParams struct {
 	TimeRange    *string             `form:"time_range,omitempty" json:"time_range,omitempty"`
 	Organization *string             `form:"organization,omitempty" json:"organization,omitempty"`
 	Level        *string             `form:"level,omitempty" json:"level,omitempty"`
+	Sort         *string             `form:"sort,omitempty" json:"sort,omitempty"`
 	Page         *PageQuery          `form:"page,omitempty" json:"page,omitempty"`
 	PageSize     *PageSizeQuery      `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
@@ -826,6 +827,14 @@ func (siw *ServerInterfaceWrapper) ListRooms(c *gin.Context) {
 	err = runtime.BindQueryParameterWithOptions("form", true, false, "level", c.Request.URL.Query(), &params.Level, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter level: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// ------------- Optional query parameter "sort" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "sort", c.Request.URL.Query(), &params.Sort, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter sort: %w", err), http.StatusBadRequest)
 		return
 	}
 

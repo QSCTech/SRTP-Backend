@@ -160,10 +160,9 @@ func (h *Handler) ListRooms(c *gin.Context, params gen.ListRoomsParams) {
 	if params.Date != nil {
 		date = &params.Date.Time
 	}
-	pageSize := optionalInt32(params.PageSize, 20)
-	// 后端强制上限，防止一次性拉取过多数据
-	if pageSize > 100 {
-		pageSize = 100
+	sort := ""
+	if params.Sort != nil {
+		sort = *params.Sort
 	}
 	rooms, err := h.roomService.List(c.Request.Context(), service.ListRoomsInput{
 		Keyword:      params.Keyword,
@@ -173,11 +172,12 @@ func (h *Handler) ListRooms(c *gin.Context, params gen.ListRoomsParams) {
 		TimeRange:    params.TimeRange,
 		Organization: params.Organization,
 		Level:        params.Level,
-		Page:         optionalInt32(params.Page, 1),
-		PageSize:     optionalInt32(params.PageSize, 20),
+		Sort:         sort,
+		Page:         int(optionalInt32(params.Page, 1)),
+		PageSize:     int(optionalInt32(params.PageSize, 20)),
 	})
 	if err != nil {
-		response.Error(c, http.StatusInternalServerError, "failed to list rooms")
+		response.Error(c, http.StatusBadRequest, err.Error())
 		return
 	}
 	response.JSON(c, http.StatusOK, buildRoomCardPage(rooms))

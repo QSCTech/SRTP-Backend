@@ -29,6 +29,7 @@ type ListRoomsInput struct {
 	TimeRange    *string
 	Organization *string
 	Level        *string
+	Sort         string
 	Page         int
 	PageSize     int
 }
@@ -108,6 +109,11 @@ type UserStatsOutput struct {
 
 /*基础功能：拿数据、加工成RoomCardItem*/
 func (s *RoomService) List(ctx context.Context, input ListRoomsInput) (*ListRoomsOutput, error) {
+	sort, err := normalizeListRoomsInput(&input)
+	if err != nil {
+		return nil, err
+	}
+
 	filter := repository.RoomFilter{
 		Keyword:      input.Keyword,
 		SportType:    input.SportType,
@@ -116,8 +122,9 @@ func (s *RoomService) List(ctx context.Context, input ListRoomsInput) (*ListRoom
 		TimeRange:    input.TimeRange,
 		Organization: input.Organization,
 		Level:        input.Level,
-		Page:         int(input.Page),
-		PageSize:     int(input.PageSize),
+		Sort:         sort,
+		Page:         input.Page,
+		PageSize:     input.PageSize,
 	}
 
 	result, err := s.repo.List(ctx, filter)
