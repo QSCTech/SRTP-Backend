@@ -32,6 +32,19 @@ func (r *RoomRepository) Create(ctx context.Context, room *models.Room) error {
 	return r.db.WithContext(ctx).Create(room).Error
 }
 
+func (r *RoomRepository) CreateRoomWithOwner(ctx context.Context, room *models.Room, ownerMember *models.RoomMember) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(room).Error; err != nil {
+			return err
+		}
+		ownerMember.RoomID = room.ID
+		if err := tx.Create(ownerMember).Error; err != nil {
+			return err
+		}
+		return nil
+	})
+}
+
 func (r *RoomRepository) Update(ctx context.Context, room *models.Room) error {
 	return r.db.WithContext(ctx).Save(room).Error
 }
@@ -235,6 +248,28 @@ func (r *RoomRepository) CountPendingJoinRequestsByUser(ctx context.Context, use
 		return 0, err
 	}
 	return count, nil
+}
+
+func (r *RoomRepository) DeleteMember(ctx context.Context, roomID, userID uint) error {
+	return r.db.WithContext(ctx).
+		Where("room_id = ? AND user_id = ?", roomID, userID).
+		Delete(&models.RoomMember{}).Error
+}
+
+func (r *RoomRepository) GetPendingJoinRequestByRoomAndUser(ctx context.Context, roomID, userID uint) (*models.JoinRequest, error) {
+	var req models.JoinRequest
+	if err := r.db.WithContext(ctx).Where("room_id = ? AND user_id = ? AND status = ?", roomID, userID, "pending").First(&req).Error; err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+func (r *RoomRepository) GetJoinRequestsByRoomID(ctx context.Context, roomID uint) ([]models.JoinRequest, error) {
+	var requests []models.JoinRequest
+	if err := r.db.WithContext(ctx).Preload("User").Where("room_id = ?", roomID).Order("created_at DESC").Find(&requests).Error; err != nil {
+		return nil, err
+	}
+	return requests, nil
 }
 
 /*为了避免多次查询数据库*/
