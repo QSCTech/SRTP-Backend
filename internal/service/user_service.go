@@ -2,22 +2,20 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
-	"strconv"
 	"strings"
 
+	"github.com/QSCTech/SRTP-Backend/internal/middleware"
 	"github.com/QSCTech/SRTP-Backend/internal/repository"
 	"github.com/QSCTech/SRTP-Backend/models"
-	"github.com/QSCTech/SRTP-Backend/pkg/utils"
 	"gorm.io/gorm"
 )
 
-type contextKey string
-
-const MockUserIDKey contextKey = "mock_user_id"
-
-// Part 3 (3组) - 登录与用户资料(临时补充实现，待3组替换):
-// Create, GetByID, GetCurrent, UpdateCurrentProfile, LoginOrCreate
+var (
+	ErrUnauthorized = errors.New("unauthorized")
+	ErrUserNotFound = errors.New("user not found")
+)
 
 type UserService struct {
 	repo *repository.UserRepository
@@ -35,11 +33,17 @@ func NewUserService(repo *repository.UserRepository) *UserService {
 }
 
 func (s *UserService) Create(ctx context.Context, authUID string) (*models.User, error) {
-	authUID = utils.NormalizeWhitespace(authUID)
-	if strings.TrimSpace(authUID) == "" {
-		return nil, fmt.Errorf("auth_uid is required")
+	authUID = strings.TrimSpace(authUID)
+	if authUID == "" {
+		return nil, fmt.Errorf("auth uid is required")
 	}
-	user := &models.User{AuthUID: authUID}
+	if _, err := s.repo.GetByAuthUID(ctx, authUID); err == nil {
+		return nil, fmt.Errorf("auth uid already exists")
+	} else if !errors.Is(err, gorm.ErrRecordNotFound) {
+		return nil, err
+	}
+
+	user := &models.User{AuthUID: authUID, ProfileStatus: "pending"}
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, err
 	}
@@ -47,35 +51,19 @@ func (s *UserService) Create(ctx context.Context, authUID string) (*models.User,
 }
 
 func (s *UserService) GetByID(ctx context.Context, id uint) (*models.User, error) {
-	user, err := s.repo.GetByID(ctx, id)
-	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("user not found")
-		}
-		return nil, err
-	}
-	return user, nil
+	return s.repo.GetByID(ctx, id)
 }
 
 func (s *UserService) GetCurrent(ctx context.Context) (*models.User, error) {
-	if mockID, ok := ctx.Value(MockUserIDKey).(string); ok && mockID != "" {
-		id, err := strconv.ParseUint(mockID, 10, 64)
-		if err != nil {
-			return nil, fmt.Errorf("invalid X-Mock-User-ID: %s", mockID)
-		}
-		user, err := s.repo.GetByID(ctx, uint(id))
-		if err != nil {
-			if err == gorm.ErrRecordNotFound {
-				return nil, fmt.Errorf("mock user %d not found", id)
-			}
-			return nil, err
-		}
-		return user, nil
+	authUID, _ := ctx.Value(middleware.AuthUIDKey).(string)
+	authUID = strings.TrimSpace(authUID)
+	if authUID == "" {
+		return nil, ErrUnauthorized
 	}
-	user, err := s.repo.GetFirst(ctx)
+	user, err := s.repo.GetByAuthUID(ctx, authUID)
 	if err != nil {
-		if err == gorm.ErrRecordNotFound {
-			return nil, fmt.Errorf("user not found")
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, ErrUserNotFound
 		}
 		return nil, err
 	}
@@ -87,36 +75,55 @@ func (s *UserService) UpdateCurrentProfile(ctx context.Context, input UpdateProf
 	if err != nil {
 		return nil, err
 	}
+
 	if input.Nickname != nil {
-		user.Nickname = utils.NormalizeWhitespace(*input.Nickname)
+		user.Nickname = *input.Nickname
 	}
 	if input.AvatarURL != nil {
-		user.AvatarURL = strings.TrimSpace(*input.AvatarURL)
+		user.AvatarURL = *input.AvatarURL
 	}
 	if input.Gender != nil {
-		user.Gender = strings.TrimSpace(*input.Gender)
+		user.Gender = *input.Gender
 	}
 	if input.Bio != nil {
-		user.Bio = utils.NormalizeWhitespace(*input.Bio)
+		user.Bio = *input.Bio
 	}
-	if err := s.repo.Update(ctx, user); err != nil {
+	user.ProfileStatus = "pending_review"
+
+	audit := &models.UserProfileAudit{
+		UserID:            user.ID,
+		SubmittedNickname: user.Nickname,
+		SubmittedBio:      user.Bio,
+		Status:            "pending",
+	}
+	if err := s.repo.UpdateProfileWithAudit(ctx, user, audit); err != nil {
 		return nil, err
 	}
 	return user, nil
 }
 
 func (s *UserService) LoginOrCreate(ctx context.Context, authUID, openID string) (*models.User, error) {
+	authUID = strings.TrimSpace(authUID)
+	openID = strings.TrimSpace(openID)
+	if authUID == "" {
+		return nil, fmt.Errorf("auth uid is required")
+	}
+
 	user, err := s.repo.GetByAuthUID(ctx, authUID)
 	if err == nil {
+		if openID != "" && user.OpenID != openID {
+			user.OpenID = openID
+			if err := s.repo.Update(ctx, user); err != nil {
+				return nil, err
+			}
+		}
 		return user, nil
 	}
-	if err != gorm.ErrRecordNotFound {
+	if !errors.Is(err, gorm.ErrRecordNotFound) {
 		return nil, err
 	}
-	user = &models.User{
-		AuthUID: authUID,
-		OpenID:  openID,
-	}
+
+	user = &models.User{AuthUID: authUID, OpenID: openID, ProfileStatus: "pending"}
 	if err := s.repo.Create(ctx, user); err != nil {
 		return nil, err
 	}

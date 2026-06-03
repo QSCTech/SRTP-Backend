@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
 	"fmt"
+	"math/big"
 	"strings"
 	"time"
 
@@ -328,7 +330,7 @@ func (s *RoomService) Update(ctx context.Context, roomID uint, input UpdateRoomI
 		return nil, fmt.Errorf("only the owner can update the room")
 	}
 
-	if room.Status != "recruiting" {
+	if room.Status != "recruiting" && room.Status != "full" {
 		return nil, fmt.Errorf("room is not active")
 	}
 
@@ -381,6 +383,10 @@ func (s *RoomService) Update(ctx context.Context, roomID uint, input UpdateRoomI
 			return nil, fmt.Errorf("member_limit cannot be less than current member count (%d)", count)
 		}
 		room.MemberLimit = &value
+		// 扩大容量时若房间已满，恢复为招募中
+		if room.Status == "full" && value > int(count) {
+			room.Status = "recruiting"
+		}
 	}
 	if input.Organization != nil {
 		room.Organization = utils.NormalizeWhitespace(*input.Organization)
@@ -909,8 +915,15 @@ func (s *RoomService) joinRoom(ctx context.Context, room *models.Room, bypassJoi
 	return &JoinRoomOutput{RoomID: room.ID, RoomPublicID: room.PublicID, JoinResult: "joined", MemberStatus: &joinedStatus}, nil
 }
 
+var inviteCodeChars = []byte("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+
 func generateInviteCode() string {
-	return fmt.Sprintf("ROOM%06d", time.Now().UnixNano()%1000000)
+	code := make([]byte, 8)
+	for i := range code {
+		n, _ := rand.Int(rand.Reader, big.NewInt(int64(len(inviteCodeChars))))
+		code[i] = inviteCodeChars[n.Int64()]
+	}
+	return string(code)
 }
 
 func tryMarkFull(ctx context.Context, repo *repository.RoomRepository, room *models.Room) {
