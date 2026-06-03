@@ -440,12 +440,12 @@ func (s *RoomService) Close(ctx context.Context, roomID uint) (*models.Room, err
 }
 
 func (s *RoomService) JoinByCode(ctx context.Context, input JoinRoomByCodeInput) (*JoinRoomOutput, error) {
-	buddyCode := strings.TrimSpace(input.BuddyCode)
-	if buddyCode == "" {
-		return nil, fmt.Errorf("buddy_code is required")
+	inviteCode := strings.TrimSpace(input.InviteCode)
+	if inviteCode == "" {
+		return nil, fmt.Errorf("invite_code is required")
 	}
 
-	room, err := s.repo.GetByBuddyCode(ctx, buddyCode)
+	room, err := s.repo.GetByInviteCode(ctx, inviteCode)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
 			return nil, fmt.Errorf("room not found")
