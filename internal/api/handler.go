@@ -227,17 +227,17 @@ func (h *Handler) GetRoomById(c *gin.Context, roomId openapi_types.UUID) {
 		response.Error(c, http.StatusInternalServerError, "failed to fetch room")
 		return
 	}
-	if room.Visibility=="private"{
-		currentUser,_:=h.userService.GetCurrent(c.Request.Context())
-		if currentUser==nil{
-			response.Error(c,http.StatusForbidden,"room is private")
-			return 
+	if room.Visibility == "private" {
+		currentUser, _ := h.userService.GetCurrent(c.Request.Context())
+		if currentUser == nil {
+			response.Error(c, http.StatusForbidden, "room is private")
+			return
 		}
-		isOwner:=currentUser.ID==room.OwnerID
-		isMember:=false
-		for _,m:=range members{
-			if m.UserID==currentUser.ID && m.Status=="joined"{
-				isMember=true
+		isOwner := currentUser.ID == room.OwnerID
+		isMember := false
+		for _, m := range members {
+			if m.UserID == currentUser.ID && m.Status == "joined" {
+				isMember = true
 				break
 			}
 		}
@@ -310,7 +310,7 @@ func (h *Handler) JoinRoomByCode(c *gin.Context) {
 		response.Error(c, http.StatusBadRequest, "invalid request body")
 		return
 	}
-	result, err := h.roomService.JoinByCode(c.Request.Context(), service.JoinRoomByCodeInput{BuddyCode: req.BuddyCode})
+	result, err := h.roomService.JoinByCode(c.Request.Context(), service.JoinRoomByCodeInput{InviteCode: req.InviteCode})
 	if err != nil {
 		response.Error(c, http.StatusBadRequest, err.Error())
 		return
@@ -369,7 +369,6 @@ func (h *Handler) ApproveJoinRequest(c *gin.Context, roomId openapi_types.UUID) 
 	}
 	response.JSON(c, http.StatusOK, gen.JoinRequestResponse{RequestId: int64(joinRequest.ID), Status: joinRequest.Status})
 }
-
 
 func (h *Handler) RejectJoinRequest(c *gin.Context, roomId openapi_types.UUID) {
 	var req gen.ReviewJoinRequestRequest
@@ -530,8 +529,8 @@ func (h *Handler) buildRoomDetail(ctx context.Context, room *models.Room, member
 	}
 	//控制邀请码
 	var inviteCode *string
-	if isOwner || isMember{
-		inviteCode=stringPtrOrNil(room.InviteCode)
+	if isOwner || isMember {
+		inviteCode = stringPtrOrNil(room.InviteCode)
 	}
 	memberItems := make([]gen.RoomMember, 0, len(members))
 	for _, member := range members {
@@ -560,7 +559,7 @@ func (h *Handler) buildRoomDetail(ctx context.Context, room *models.Room, member
 		Organization:        stringPtrOrNil(room.Organization),
 		LevelDesc:           stringPtrOrNil(room.LevelDesc),
 		Description:         stringPtrOrNil(room.Description),
-		BuddyCode:           inviteCode,
+		InviteCode:          inviteCode,
 		Owner:               gen.RoomOwner{Id: int64(room.Owner.ID), PublicId: mustParseUUID(room.Owner.PublicID), Nickname: room.Owner.Nickname, AvatarUrl: room.Owner.AvatarURL},
 		Members:             memberItems,
 		CurrentMemberCount:  int32(countCurrentMembers(members)),

@@ -65,7 +65,7 @@ type JoinRequestResponse struct {
 
 // JoinRoomByCodeRequest defines model for JoinRoomByCodeRequest.
 type JoinRoomByCodeRequest struct {
-	BuddyCode string `json:"buddy_code"`
+	InviteCode string `json:"invite_code"`
 }
 
 // JoinRoomResult defines model for JoinRoomResult.
@@ -210,13 +210,13 @@ type RoomCardPage struct {
 
 // RoomDetail defines model for RoomDetail.
 type RoomDetail struct {
-	BuddyCode           *string            `json:"buddy_code,omitempty"`
 	CampusName          string             `json:"campus_name"`
 	CurrentMemberCount  int32              `json:"current_member_count"`
 	Description         *string            `json:"description,omitempty"`
 	EndTime             time.Time          `json:"end_time"`
 	GenderRule          *string            `json:"gender_rule,omitempty"`
 	Id                  int64              `json:"id"`
+	InviteCode          *string            `json:"invite_code,omitempty"`
 	IsOwner             bool               `json:"is_owner"`
 	JoinMode            string             `json:"join_mode"`
 	Joinable            bool               `json:"joinable"`
@@ -889,7 +889,7 @@ func (siw *ServerInterfaceWrapper) GetRoomById(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -913,7 +913,7 @@ func (siw *ServerInterfaceWrapper) UpdateRoom(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -937,7 +937,7 @@ func (siw *ServerInterfaceWrapper) CreateJoinRequest(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -961,7 +961,7 @@ func (siw *ServerInterfaceWrapper) ApproveJoinRequest(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -985,7 +985,7 @@ func (siw *ServerInterfaceWrapper) CloseRoom(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -1009,7 +1009,7 @@ func (siw *ServerInterfaceWrapper) InviteRoomMember(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -1033,7 +1033,7 @@ func (siw *ServerInterfaceWrapper) JoinRoomDirectly(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -1057,7 +1057,7 @@ func (siw *ServerInterfaceWrapper) RemoveRoomMember(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -1090,7 +1090,7 @@ func (siw *ServerInterfaceWrapper) RejectJoinRequest(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -1114,7 +1114,7 @@ func (siw *ServerInterfaceWrapper) PreviewRoomReservation(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
@@ -1138,7 +1138,7 @@ func (siw *ServerInterfaceWrapper) SubmitRoomReservation(c *gin.Context) {
 	// ------------- Path parameter "roomId" -------------
 	var roomId RoomIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
 		return
