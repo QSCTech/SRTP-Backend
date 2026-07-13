@@ -13,6 +13,30 @@ import (
 	openapi_types "github.com/oapi-codegen/runtime/types"
 )
 
+// Defines values for ListRoomJoinRequestsParamsStatus.
+const (
+	Approved  ListRoomJoinRequestsParamsStatus = "approved"
+	Cancelled ListRoomJoinRequestsParamsStatus = "cancelled"
+	Pending   ListRoomJoinRequestsParamsStatus = "pending"
+	Rejected  ListRoomJoinRequestsParamsStatus = "rejected"
+)
+
+// Valid indicates whether the value is a known member of the ListRoomJoinRequestsParamsStatus enum.
+func (e ListRoomJoinRequestsParamsStatus) Valid() bool {
+	switch e {
+	case Approved:
+		return true
+	case Cancelled:
+		return true
+	case Pending:
+		return true
+	case Rejected:
+		return true
+	default:
+		return false
+	}
+}
+
 // CreateJoinRequestRequest defines model for CreateJoinRequestRequest.
 type CreateJoinRequestRequest struct {
 	Message string `json:"message"`
@@ -54,13 +78,29 @@ type HealthResponse struct {
 
 // InviteMemberRequest defines model for InviteMemberRequest.
 type InviteMemberRequest struct {
-	UserId int64 `json:"user_id"`
+	UserPublicId openapi_types.UUID `json:"user_public_id"`
+}
+
+// JoinRequestItem defines model for JoinRequestItem.
+type JoinRequestItem struct {
+	AvatarUrl       string             `json:"avatar_url"`
+	CreatedAt       time.Time          `json:"created_at"`
+	Message         string             `json:"message"`
+	Nickname        string             `json:"nickname"`
+	RequestPublicId openapi_types.UUID `json:"request_public_id"`
+	Status          string             `json:"status"`
+	UserPublicId    openapi_types.UUID `json:"user_public_id"`
+}
+
+// JoinRequestListResponse defines model for JoinRequestListResponse.
+type JoinRequestListResponse struct {
+	Items []JoinRequestItem `json:"items"`
 }
 
 // JoinRequestResponse defines model for JoinRequestResponse.
 type JoinRequestResponse struct {
-	RequestId int64  `json:"request_id"`
-	Status    string `json:"status"`
+	RequestPublicId openapi_types.UUID `json:"request_public_id"`
+	Status          string             `json:"status"`
 }
 
 // JoinRoomByCodeRequest defines model for JoinRoomByCodeRequest.
@@ -73,15 +113,14 @@ type JoinRoomResult struct {
 	JoinResult    string             `json:"join_result"`
 	MemberStatus  *string            `json:"member_status,omitempty"`
 	RequestStatus *string            `json:"request_status,omitempty"`
-	RoomId        int64              `json:"room_id"`
 	RoomPublicId  openapi_types.UUID `json:"room_public_id"`
 }
 
 // MemberActionResponse defines model for MemberActionResponse.
 type MemberActionResponse struct {
-	RoomId int64  `json:"room_id"`
-	Status string `json:"status"`
-	UserId int64  `json:"user_id"`
+	RoomPublicId openapi_types.UUID `json:"room_public_id"`
+	Status       string             `json:"status"`
+	UserPublicId openapi_types.UUID `json:"user_public_id"`
 }
 
 // ReadyResponse defines model for ReadyResponse.
@@ -98,7 +137,6 @@ type ReservationPreviewResponse struct {
 	Provider          string             `json:"provider"`
 	ReservationDate   openapi_types.Date `json:"reservation_date"`
 	ReservationStatus string             `json:"reservation_status"`
-	RoomId            int64              `json:"room_id"`
 	RoomPublicId      openapi_types.UUID `json:"room_public_id"`
 	SpaceId           *int64             `json:"space_id,omitempty"`
 	SpaceName         *string            `json:"space_name,omitempty"`
@@ -117,12 +155,10 @@ type ReservationRecordResponse struct {
 	EndTime           string             `json:"end_time"`
 	ExternalOrderId   *string            `json:"external_order_id,omitempty"`
 	ExternalTradeNo   *string            `json:"external_trade_no,omitempty"`
-	Id                int64              `json:"id"`
 	Provider          string             `json:"provider"`
 	PublicId          openapi_types.UUID `json:"public_id"`
 	ReservationDate   openapi_types.Date `json:"reservation_date"`
 	ReservationStatus string             `json:"reservation_status"`
-	RoomId            int64              `json:"room_id"`
 	RoomPublicId      openapi_types.UUID `json:"room_public_id"`
 	SpaceId           *int64             `json:"space_id,omitempty"`
 	SpaceName         *string            `json:"space_name,omitempty"`
@@ -177,7 +213,7 @@ type ReservationVenueListResponse struct {
 
 // ReviewJoinRequestRequest defines model for ReviewJoinRequestRequest.
 type ReviewJoinRequestRequest struct {
-	RequestId int64 `json:"request_id"`
+	RequestPublicId openapi_types.UUID `json:"request_public_id"`
 }
 
 // RoomCard defines model for RoomCard.
@@ -185,7 +221,6 @@ type RoomCard struct {
 	CampusName         string             `json:"campus_name"`
 	CurrentMemberCount int32              `json:"current_member_count"`
 	EndTime            time.Time          `json:"end_time"`
-	Id                 int64              `json:"id"`
 	JoinMode           string             `json:"join_mode"`
 	MaxMemberCount     int32              `json:"max_member_count"`
 	Name               string             `json:"name"`
@@ -215,7 +250,6 @@ type RoomDetail struct {
 	Description         *string            `json:"description,omitempty"`
 	EndTime             time.Time          `json:"end_time"`
 	GenderRule          *string            `json:"gender_rule,omitempty"`
-	Id                  int64              `json:"id"`
 	InviteCode          *string            `json:"invite_code,omitempty"`
 	IsOwner             bool               `json:"is_owner"`
 	JoinMode            string             `json:"join_mode"`
@@ -243,14 +277,12 @@ type RoomMember struct {
 	Nickname     string             `json:"nickname"`
 	Role         string             `json:"role"`
 	Status       string             `json:"status"`
-	UserId       int64              `json:"user_id"`
 	UserPublicId openapi_types.UUID `json:"user_public_id"`
 }
 
 // RoomOwner defines model for RoomOwner.
 type RoomOwner struct {
 	AvatarUrl string             `json:"avatar_url"`
-	Id        int64              `json:"id"`
 	Nickname  string             `json:"nickname"`
 	PublicId  openapi_types.UUID `json:"public_id"`
 }
@@ -285,7 +317,6 @@ type User struct {
 	Bio       string    `json:"bio"`
 	CreatedAt time.Time `json:"created_at"`
 	Gender    string    `json:"gender"`
-	Id        int64     `json:"id"`
 	Nickname  string    `json:"nickname"`
 
 	// ProfileStatus Current profile state. This version uses synchronous blocked-word validation instead of manual review workflow.
@@ -311,7 +342,7 @@ type WxLoginRequest struct {
 }
 
 // MemberUserIdPath defines model for MemberUserIdPath.
-type MemberUserIdPath = int64
+type MemberUserIdPath = openapi_types.UUID
 
 // PageQuery defines model for PageQuery.
 type PageQuery = int32
@@ -323,7 +354,7 @@ type PageSizeQuery = int32
 type RoomIdPath = openapi_types.UUID
 
 // UserIdPath defines model for UserIdPath.
-type UserIdPath = int64
+type UserIdPath = openapi_types.UUID
 
 // ListMyCreatedRoomsParams defines parameters for ListMyCreatedRooms.
 type ListMyCreatedRoomsParams struct {
@@ -363,6 +394,14 @@ type ListRoomsParams struct {
 	Page         *PageQuery          `form:"page,omitempty" json:"page,omitempty"`
 	PageSize     *PageSizeQuery      `form:"page_size,omitempty" json:"page_size,omitempty"`
 }
+
+// ListRoomJoinRequestsParams defines parameters for ListRoomJoinRequests.
+type ListRoomJoinRequestsParams struct {
+	Status *ListRoomJoinRequestsParamsStatus `form:"status,omitempty" json:"status,omitempty"`
+}
+
+// ListRoomJoinRequestsParamsStatus defines parameters for ListRoomJoinRequests.
+type ListRoomJoinRequestsParamsStatus string
 
 // LoginWithWechatJSONRequestBody defines body for LoginWithWechat for application/json ContentType.
 type LoginWithWechatJSONRequestBody = WxLoginRequest
@@ -453,6 +492,9 @@ type ServerInterface interface {
 	// Create a join request
 	// (POST /rooms/{roomId}/apply)
 	CreateJoinRequest(c *gin.Context, roomId RoomIdPath)
+	// Cancel current user's pending join request
+	// (POST /rooms/{roomId}/apply/cancel)
+	CancelJoinRequest(c *gin.Context, roomId RoomIdPath)
 	// Approve a join request
 	// (POST /rooms/{roomId}/approve)
 	ApproveJoinRequest(c *gin.Context, roomId RoomIdPath)
@@ -465,6 +507,12 @@ type ServerInterface interface {
 	// Join a room directly
 	// (POST /rooms/{roomId}/join)
 	JoinRoomDirectly(c *gin.Context, roomId RoomIdPath)
+	// List join requests for a room
+	// (GET /rooms/{roomId}/join-requests)
+	ListRoomJoinRequests(c *gin.Context, roomId RoomIdPath, params ListRoomJoinRequestsParams)
+	// Leave a room as a member
+	// (POST /rooms/{roomId}/leave)
+	LeaveRoom(c *gin.Context, roomId RoomIdPath)
 	// Remove a member from room
 	// (POST /rooms/{roomId}/members/{userId}/remove)
 	RemoveRoomMember(c *gin.Context, roomId RoomIdPath, userId MemberUserIdPath)
@@ -480,9 +528,9 @@ type ServerInterface interface {
 	// Create a user record
 	// (POST /users)
 	CreateUser(c *gin.Context)
-	// Get a user by id
-	// (GET /users/{id})
-	GetUserById(c *gin.Context, id UserIdPath)
+	// Get a user by public UUID
+	// (GET /users/{userId})
+	GetUserById(c *gin.Context, userId UserIdPath)
 }
 
 // ServerInterfaceWrapper converts contexts to parameters.
@@ -953,6 +1001,30 @@ func (siw *ServerInterfaceWrapper) CreateJoinRequest(c *gin.Context) {
 	siw.Handler.CreateJoinRequest(c, roomId)
 }
 
+// CancelJoinRequest operation middleware
+func (siw *ServerInterfaceWrapper) CancelJoinRequest(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomIdPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.CancelJoinRequest(c, roomId)
+}
+
 // ApproveJoinRequest operation middleware
 func (siw *ServerInterfaceWrapper) ApproveJoinRequest(c *gin.Context) {
 
@@ -1049,6 +1121,65 @@ func (siw *ServerInterfaceWrapper) JoinRoomDirectly(c *gin.Context) {
 	siw.Handler.JoinRoomDirectly(c, roomId)
 }
 
+// ListRoomJoinRequests operation middleware
+func (siw *ServerInterfaceWrapper) ListRoomJoinRequests(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomIdPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	// Parameter object where we will unmarshal all parameters from the context
+	var params ListRoomJoinRequestsParams
+
+	// ------------- Optional query parameter "status" -------------
+
+	err = runtime.BindQueryParameterWithOptions("form", true, false, "status", c.Request.URL.Query(), &params.Status, runtime.BindQueryParameterOptions{Type: "string", Format: ""})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter status: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.ListRoomJoinRequests(c, roomId, params)
+}
+
+// LeaveRoom operation middleware
+func (siw *ServerInterfaceWrapper) LeaveRoom(c *gin.Context) {
+
+	var err error
+
+	// ------------- Path parameter "roomId" -------------
+	var roomId RoomIdPath
+
+	err = runtime.BindStyledParameterWithOptions("simple", "roomId", c.Param("roomId"), &roomId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
+	if err != nil {
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter roomId: %w", err), http.StatusBadRequest)
+		return
+	}
+
+	for _, middleware := range siw.HandlerMiddlewares {
+		middleware(c)
+		if c.IsAborted() {
+			return
+		}
+	}
+
+	siw.Handler.LeaveRoom(c, roomId)
+}
+
 // RemoveRoomMember operation middleware
 func (siw *ServerInterfaceWrapper) RemoveRoomMember(c *gin.Context) {
 
@@ -1066,7 +1197,7 @@ func (siw *ServerInterfaceWrapper) RemoveRoomMember(c *gin.Context) {
 	// ------------- Path parameter "userId" -------------
 	var userId MemberUserIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
 		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
 		return
@@ -1172,12 +1303,12 @@ func (siw *ServerInterfaceWrapper) GetUserById(c *gin.Context) {
 
 	var err error
 
-	// ------------- Path parameter "id" -------------
-	var id UserIdPath
+	// ------------- Path parameter "userId" -------------
+	var userId UserIdPath
 
-	err = runtime.BindStyledParameterWithOptions("simple", "id", c.Param("id"), &id, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "integer", Format: "int64"})
+	err = runtime.BindStyledParameterWithOptions("simple", "userId", c.Param("userId"), &userId, runtime.BindStyledParameterOptions{Explode: false, Required: true, Type: "string", Format: "uuid"})
 	if err != nil {
-		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter id: %w", err), http.StatusBadRequest)
+		siw.ErrorHandler(c, fmt.Errorf("Invalid format for parameter userId: %w", err), http.StatusBadRequest)
 		return
 	}
 
@@ -1188,7 +1319,7 @@ func (siw *ServerInterfaceWrapper) GetUserById(c *gin.Context) {
 		}
 	}
 
-	siw.Handler.GetUserById(c, id)
+	siw.Handler.GetUserById(c, userId)
 }
 
 // GinServerOptions provides options for the Gin server.
@@ -1235,14 +1366,17 @@ func RegisterHandlersWithOptions(router gin.IRouter, si ServerInterface, options
 	router.GET(options.BaseURL+"/rooms/:roomId", wrapper.GetRoomById)
 	router.PUT(options.BaseURL+"/rooms/:roomId", wrapper.UpdateRoom)
 	router.POST(options.BaseURL+"/rooms/:roomId/apply", wrapper.CreateJoinRequest)
+	router.POST(options.BaseURL+"/rooms/:roomId/apply/cancel", wrapper.CancelJoinRequest)
 	router.POST(options.BaseURL+"/rooms/:roomId/approve", wrapper.ApproveJoinRequest)
 	router.POST(options.BaseURL+"/rooms/:roomId/close", wrapper.CloseRoom)
 	router.POST(options.BaseURL+"/rooms/:roomId/invite", wrapper.InviteRoomMember)
 	router.POST(options.BaseURL+"/rooms/:roomId/join", wrapper.JoinRoomDirectly)
+	router.GET(options.BaseURL+"/rooms/:roomId/join-requests", wrapper.ListRoomJoinRequests)
+	router.POST(options.BaseURL+"/rooms/:roomId/leave", wrapper.LeaveRoom)
 	router.POST(options.BaseURL+"/rooms/:roomId/members/:userId/remove", wrapper.RemoveRoomMember)
 	router.POST(options.BaseURL+"/rooms/:roomId/reject", wrapper.RejectJoinRequest)
 	router.POST(options.BaseURL+"/rooms/:roomId/reservation/preview", wrapper.PreviewRoomReservation)
 	router.POST(options.BaseURL+"/rooms/:roomId/reservation/submit", wrapper.SubmitRoomReservation)
 	router.POST(options.BaseURL+"/users", wrapper.CreateUser)
-	router.GET(options.BaseURL+"/users/:id", wrapper.GetUserById)
+	router.GET(options.BaseURL+"/users/:userId", wrapper.GetUserById)
 }

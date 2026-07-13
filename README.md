@@ -168,6 +168,12 @@ Files:
 
 Do not edit generated code directly.
 
+### Public identifier convention
+
+- HTTP paths, request bodies, and responses use UUID public identifiers for users, rooms, join requests, and reservations.
+- Database auto-increment IDs remain internal to the service and repository layers.
+- Numeric `venue_id`, `venue_site_id`, and `space_id` values are TYYS protocol fields, not local database identifiers.
+
 ### Regenerate code
 
 ```bash
@@ -212,7 +218,10 @@ Rooms:
 Membership:
 - `POST /rooms/join-by-code`
 - `POST /rooms/{roomId}/join`
+- `POST /rooms/{roomId}/leave`
 - `POST /rooms/{roomId}/apply`
+- `POST /rooms/{roomId}/apply/cancel`
+- `GET /rooms/{roomId}/join-requests`
 - `POST /rooms/{roomId}/approve`
 - `POST /rooms/{roomId}/reject`
 - `POST /rooms/{roomId}/invite`
@@ -259,8 +268,9 @@ More business endpoints are defined in `api/openapi/openapi.yaml`, but some serv
 At this stage:
 
 - OpenAPI and GORM models are the main contract source
-- some handler wiring is already present
-- several service-layer modules are intentionally scaffolded so feature groups can implement their own business logic
+- room creation, owner update/close, created/joined room lists, and user room statistics are implemented
+- direct/invite-code joining, approval, invitation, and member removal are implemented
+- reservation service flows are still scaffolded
 - when OpenAPI changes, regenerate code with `make generate`
 
 ## Current Scope

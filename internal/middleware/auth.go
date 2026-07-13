@@ -61,6 +61,8 @@ func routeNeedsAuth(method, path string) bool {
 		return true
 	case method == http.MethodPost && path == "/rooms/join-by-code":
 		return true
+	case method == http.MethodGet && path == "/rooms/:roomId/join-requests":
+		return true
 	case path == "/rooms/:roomId" && method == http.MethodPut:
 		return true
 	case strings.HasPrefix(path, "/rooms/:roomId/") && method == http.MethodPost:

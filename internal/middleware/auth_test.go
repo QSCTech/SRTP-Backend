@@ -69,6 +69,9 @@ func TestAuthByRouteProtectsOnlyConfiguredRoutes(t *testing.T) {
 	router.GET("/rooms", func(c *gin.Context) {
 		c.Status(http.StatusNoContent)
 	})
+	router.GET("/rooms/:roomId/join-requests", func(c *gin.Context) {
+		c.Status(http.StatusNoContent)
+	})
 
 	recorder := httptest.NewRecorder()
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/me", nil))
@@ -80,6 +83,12 @@ func TestAuthByRouteProtectsOnlyConfiguredRoutes(t *testing.T) {
 	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/rooms", nil))
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("/rooms status=%d want %d", recorder.Code, http.StatusNoContent)
+	}
+
+	recorder = httptest.NewRecorder()
+	router.ServeHTTP(recorder, httptest.NewRequest(http.MethodGet, "/rooms/room-1/join-requests", nil))
+	if recorder.Code != http.StatusUnauthorized {
+		t.Fatalf("join request list status=%d want %d", recorder.Code, http.StatusUnauthorized)
 	}
 }
 

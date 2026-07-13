@@ -6,6 +6,7 @@ import (
 
 	"github.com/QSCTech/SRTP-Backend/models"
 	"gorm.io/gorm"
+	"gorm.io/gorm/clause"
 )
 
 type RoomFilter struct {
@@ -28,8 +29,24 @@ func NewRoomRepository(db *gorm.DB) *RoomRepository {
 	return &RoomRepository{db: db}
 }
 
+func (r *RoomRepository) Transaction(ctx context.Context, fn func(*RoomRepository) error) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		return fn(NewRoomRepository(tx))
+	})
+}
+
 func (r *RoomRepository) Create(ctx context.Context, room *models.Room) error {
 	return r.db.WithContext(ctx).Create(room).Error
+}
+
+func (r *RoomRepository) CreateRoomWithOwner(ctx context.Context, room *models.Room, owner *models.RoomMember) error {
+	return r.db.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(room).Error; err != nil {
+			return err
+		}
+		owner.RoomID = room.ID
+		return tx.Create(owner).Error
+	})
 }
 
 func (r *RoomRepository) Update(ctx context.Context, room *models.Room) error {
@@ -39,6 +56,14 @@ func (r *RoomRepository) Update(ctx context.Context, room *models.Room) error {
 func (r *RoomRepository) GetByID(ctx context.Context, id uint) (*models.Room, error) {
 	var room models.Room
 	if err := r.db.WithContext(ctx).Preload("Owner").First(&room, id).Error; err != nil {
+		return nil, err
+	}
+	return &room, nil
+}
+
+func (r *RoomRepository) GetByIDForUpdate(ctx context.Context, id uint) (*models.Room, error) {
+	var room models.Room
+	if err := r.db.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).First(&room, id).Error; err != nil {
 		return nil, err
 	}
 	return &room, nil
@@ -142,7 +167,7 @@ func (r *RoomRepository) ListRoomsByOwner(ctx context.Context, ownerID uint, pag
 func (r *RoomRepository) ListRoomsJoinedByUser(ctx context.Context, userID uint, page, pageSize int) (*RoomListResult, error) {
 	q := r.db.WithContext(ctx).Model(&models.Room{}).Preload("Owner").
 		Joins("JOIN room_members ON room_members.room_id = rooms.id").
-		Where("room_members.user_id = ? AND room_members.status = ?", userID, "joined")
+		Where("room_members.user_id = ? AND room_members.status = ? AND room_members.role <> ?", userID, "joined", "owner")
 
 	var total int64
 	if err := q.Count(&total).Error; err != nil {
@@ -201,6 +226,34 @@ func (r *RoomRepository) GetJoinRequestByPublicID(ctx context.Context, publicID 
 	return &req, nil
 }
 
+func (r *RoomRepository) GetJoinRequestByPublicIDForUpdate(ctx context.Context, publicID string) (*models.JoinRequest, error) {
+	var req models.JoinRequest
+	if err := r.db.WithContext(ctx).Clauses(clause.Locking{Strength: "UPDATE"}).Where("public_id = ?", publicID).First(&req).Error; err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+func (r *RoomRepository) GetPendingJoinRequestByRoomAndUser(ctx context.Context, roomID, userID uint) (*models.JoinRequest, error) {
+	var req models.JoinRequest
+	if err := r.db.WithContext(ctx).Where("room_id = ? AND user_id = ? AND status = ?", roomID, userID, "pending").First(&req).Error; err != nil {
+		return nil, err
+	}
+	return &req, nil
+}
+
+func (r *RoomRepository) ListJoinRequests(ctx context.Context, roomID uint, status *string) ([]models.JoinRequest, error) {
+	query := r.db.WithContext(ctx).Preload("User").Where("room_id = ?", roomID)
+	if status != nil && *status != "" {
+		query = query.Where("status = ?", *status)
+	}
+	var requests []models.JoinRequest
+	if err := query.Order("created_at DESC").Find(&requests).Error; err != nil {
+		return nil, err
+	}
+	return requests, nil
+}
+
 func (r *RoomRepository) UpdateJoinRequest(ctx context.Context, req *models.JoinRequest) error {
 	return r.db.WithContext(ctx).Save(req).Error
 }
@@ -223,7 +276,7 @@ func (r *RoomRepository) CountRoomsByOwner(ctx context.Context, ownerID uint) (i
 
 func (r *RoomRepository) CountJoinedRoomsByUser(ctx context.Context, userID uint) (int64, error) {
 	var count int64
-	if err := r.db.WithContext(ctx).Model(&models.RoomMember{}).Where("user_id = ? AND status = ?", userID, "joined").Count(&count).Error; err != nil {
+	if err := r.db.WithContext(ctx).Model(&models.RoomMember{}).Where("user_id = ? AND status = ? AND role <> ?", userID, "joined", "owner").Count(&count).Error; err != nil {
 		return 0, err
 	}
 	return count, nil

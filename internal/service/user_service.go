@@ -54,6 +54,10 @@ func (s *UserService) GetByID(ctx context.Context, id uint) (*models.User, error
 	return s.repo.GetByID(ctx, id)
 }
 
+func (s *UserService) GetByPublicID(ctx context.Context, publicID string) (*models.User, error) {
+	return s.repo.GetByPublicID(ctx, publicID)
+}
+
 func (s *UserService) GetCurrent(ctx context.Context) (*models.User, error) {
 	authUID, _ := ctx.Value(middleware.AuthUIDKey).(string)
 	authUID = strings.TrimSpace(authUID)

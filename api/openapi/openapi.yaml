@@ -86,10 +86,10 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
-  /users/{id}:
+  /users/{userId}:
     get:
       operationId: getUserById
-      summary: Get a user by id
+      summary: Get a user by public UUID
       parameters:
         - $ref: '#/components/parameters/UserIdPath'
       responses:
@@ -359,6 +359,25 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/leave:
+    post:
+      operationId: leaveRoom
+      summary: Leave a room as a member
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+      responses:
+        '200':
+          description: Left room successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/MemberActionResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
   /rooms/{roomId}/apply:
     post:
       operationId: createJoinRequest
@@ -380,6 +399,49 @@ paths:
                 $ref: '#/components/schemas/JoinRequestResponse'
         '400':
           description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/apply/cancel:
+    post:
+      operationId: cancelJoinRequest
+      summary: Cancel current user's pending join request
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+      responses:
+        '200':
+          description: Join request cancelled
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestResponse'
+        '400':
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+  /rooms/{roomId}/join-requests:
+    get:
+      operationId: listRoomJoinRequests
+      summary: List join requests for a room
+      parameters:
+        - $ref: '#/components/parameters/RoomIdPath'
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, approved, rejected, cancelled]
+      responses:
+        '200':
+          description: Join request list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/JoinRequestListResponse'
+        '400':
+          description: Invalid request or insufficient permission
           content:
             application/json:
               schema:
@@ -592,12 +654,11 @@ components:
   parameters:
     UserIdPath:
       in: path
-      name: id
+      name: userId
       required: true
       schema:
-        type: integer
-        format: int64
-        minimum: 1
+        type: string
+        format: uuid
     RoomIdPath:
       in: path
       name: roomId
@@ -610,9 +671,8 @@ components:
       name: userId
       required: true
       schema:
-        type: integer
-        format: int64
-        minimum: 1
+        type: string
+        format: uuid
     PageQuery:
       in: query
       name: page
@@ -690,7 +750,6 @@ components:
     User:
       type: object
       required:
-        - id
         - public_id
         - auth_uid
         - nickname
@@ -701,9 +760,6 @@ components:
         - created_at
         - updated_at
       properties:
-        id:
-          type: integer
-          format: int64
         public_id:
           type: string
           format: uuid
@@ -743,11 +799,8 @@ components:
           format: int64
     RoomOwner:
       type: object
-      required: [id, public_id, nickname, avatar_url]
+      required: [public_id, nickname, avatar_url]
       properties:
-        id:
-          type: integer
-          format: int64
         public_id:
           type: string
           format: uuid
@@ -757,11 +810,8 @@ components:
           type: string
     RoomMember:
       type: object
-      required: [user_id, user_public_id, nickname, avatar_url, role, status]
+      required: [user_public_id, nickname, avatar_url, role, status]
       properties:
-        user_id:
-          type: integer
-          format: int64
         user_public_id:
           type: string
           format: uuid
@@ -776,7 +826,6 @@ components:
     RoomCard:
       type: object
       required:
-        - id
         - public_id
         - name
         - sport_type
@@ -793,9 +842,6 @@ components:
         - status
         - reservation_status
       properties:
-        id:
-          type: integer
-          format: int64
         public_id:
           type: string
           format: uuid
@@ -851,7 +897,6 @@ components:
     RoomDetail:
       type: object
       required:
-        - id
         - public_id
         - name
         - sport_type
@@ -870,9 +915,6 @@ components:
         - is_owner
         - joinable
       properties:
-        id:
-          type: integer
-          format: int64
         public_id:
           type: string
           format: uuid
@@ -1020,11 +1062,8 @@ components:
           maxLength: 16
     JoinRoomResult:
       type: object
-      required: [room_id, room_public_id, join_result]
+      required: [room_public_id, join_result]
       properties:
-        room_id:
-          type: integer
-          format: int64
         room_public_id:
           type: string
           format: uuid
@@ -1043,39 +1082,66 @@ components:
           maxLength: 255
     ReviewJoinRequestRequest:
       type: object
-      required: [request_id]
+      required: [request_public_id]
       properties:
-        request_id:
-          type: integer
-          format: int64
-          minimum: 1
+        request_public_id:
+          type: string
+          format: uuid
     JoinRequestResponse:
       type: object
-      required: [request_id, status]
+      required: [request_public_id, status]
       properties:
-        request_id:
-          type: integer
-          format: int64
+        request_public_id:
+          type: string
+          format: uuid
         status:
           type: string
+    JoinRequestItem:
+      type: object
+      required: [request_public_id, user_public_id, nickname, avatar_url, message, status, created_at]
+      properties:
+        request_public_id:
+          type: string
+          format: uuid
+        user_public_id:
+          type: string
+          format: uuid
+        nickname:
+          type: string
+        avatar_url:
+          type: string
+        message:
+          type: string
+        status:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    JoinRequestListResponse:
+      type: object
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/JoinRequestItem'
     InviteMemberRequest:
       type: object
-      required: [user_id]
+      required: [user_public_id]
       properties:
-        user_id:
-          type: integer
-          format: int64
-          minimum: 1
+        user_public_id:
+          type: string
+          format: uuid
     MemberActionResponse:
       type: object
-      required: [room_id, user_id, status]
+      required: [room_public_id, user_public_id, status]
       properties:
-        room_id:
-          type: integer
-          format: int64
-        user_id:
-          type: integer
-          format: int64
+        room_public_id:
+          type: string
+          format: uuid
+        user_public_id:
+          type: string
+          format: uuid
         status:
           type: string
     ReservationVenue:
@@ -1157,7 +1223,6 @@ components:
     ReservationPreviewResponse:
       type: object
       required:
-        - room_id
         - room_public_id
         - provider
         - reservation_status
@@ -1168,9 +1233,6 @@ components:
         - start_time
         - end_time
       properties:
-        room_id:
-          type: integer
-          format: int64
         room_public_id:
           type: string
           format: uuid
@@ -1207,9 +1269,7 @@ components:
     ReservationRecordResponse:
       type: object
       required:
-        - id
         - public_id
-        - room_id
         - room_public_id
         - provider
         - reservation_status
@@ -1222,15 +1282,9 @@ components:
         - created_at
         - updated_at
       properties:
-        id:
-          type: integer
-          format: int64
         public_id:
           type: string
           format: uuid
-        room_id:
-          type: integer
-          format: int64
         room_public_id:
           type: string
           format: uuid
