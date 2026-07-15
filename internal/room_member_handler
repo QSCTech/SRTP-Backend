@@ -1,0 +1,139 @@
+package group6
+
+import (
+	"net/http"
+	"strconv"
+
+	"github.com/gin-gonic/gin"
+)
+
+type RoomMemberHandler struct {
+	svc *RoomMemberService
+}
+
+func NewRoomMemberHandler(svc *RoomMemberService) *RoomMemberHandler {
+	return &RoomMemberHandler{svc: svc}
+}
+
+// Join POST /rooms/:id/join
+func (h *RoomMemberHandler) Join(c *gin.Context) {
+	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	userID := c.GetUint("userID")
+
+	if err := h.svc.JoinDirectly(c.Request.Context(), uint(roomID), uint(userID)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "加入成功"})
+}
+
+// Apply POST /rooms/:id/apply
+func (h *RoomMemberHandler) Apply(c *gin.Context) {
+	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	userID := c.GetUint("userID")
+
+	var input struct {
+		Message string `json:"message"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "无效的输入"})
+		return
+	}
+
+	if err := h.svc.ApplyToJoin(c.Request.Context(), uint(roomID), uint(userID), input.Message); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusAccepted, gin.H{"message": "申请已提交"})
+}
+
+// JoinByCode POST /rooms/join-by-code
+func (h *RoomMemberHandler) JoinByCode(c *gin.Context) {
+	userID := c.GetUint("userID")
+	var input struct {
+		Code string `json:"code" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "邀请码必填"})
+		return
+	}
+
+	if err := h.svc.JoinByCode(c.Request.Context(), input.Code, uint(userID)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "加入成功"})
+}
+
+// Approve POST /rooms/:id/approve
+func (h *RoomMemberHandler) Approve(c *gin.Context) {
+	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	ownerID := c.GetUint("userID")
+
+	var input struct {
+		RequestID uint `json:"request_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "申请ID必填"})
+		return
+	}
+
+	if err := h.svc.ApproveRequest(c.Request.Context(), uint(roomID), input.RequestID, uint(ownerID)); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "审批成功"})
+}
+
+// Reject POST /rooms/:id/reject
+func (h *RoomMemberHandler) Reject(c *gin.Context) {
+	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	ownerID := c.GetUint("userID")
+
+	var input struct {
+		RequestID uint `json:"request_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "申请ID必填"})
+		return
+	}
+
+	if err := h.svc.RejectRequest(c.Request.Context(), uint(roomID), input.RequestID, uint(ownerID)); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "已拒绝申请"})
+}
+
+// Invite POST /rooms/:id/invite
+func (h *RoomMemberHandler) Invite(c *gin.Context) {
+	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	ownerID := c.GetUint("userID")
+
+	var input struct {
+		UserID uint `json:"user_id" binding:"required"`
+	}
+	if err := c.ShouldBindJSON(&input); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": "被邀请用户ID必填"})
+		return
+	}
+
+	if err := h.svc.InviteMember(c.Request.Context(), uint(roomID), input.UserID, uint(ownerID)); err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "邀请成功"})
+}
+
+// Remove POST /rooms/:id/members/:userId/remove
+func (h *RoomMemberHandler) Remove(c *gin.Context) {
+	roomID, _ := strconv.ParseUint(c.Param("id"), 10, 64)
+	targetUserID, _ := strconv.ParseUint(c.Param("userId"), 10, 64)
+	ownerID := c.GetUint("userID")
+
+	if err := h.svc.RemoveMember(c.Request.Context(), uint(roomID), uint(targetUserID), uint(ownerID)); err != nil {
+		c.JSON(http.StatusForbidden, gin.H{"error": err.Error()})
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "移除成功"})
+}
